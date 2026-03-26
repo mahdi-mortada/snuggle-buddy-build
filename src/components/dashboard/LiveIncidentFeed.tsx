@@ -1,5 +1,6 @@
 import { mockIncidents } from '@/data/mockData';
 import { formatDistanceToNow } from 'date-fns';
+import { CredibilityBadge, SourceTag } from '@/components/shared/SourceBadge';
 
 const severityStyles: Record<string, string> = {
   low: 'bg-success/15 text-success border-success/30',
@@ -42,20 +43,40 @@ export function LiveIncidentFeed() {
             <div className="flex items-start gap-3">
               <span className="text-lg mt-0.5">{categoryIcons[incident.category] || '📋'}</span>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium uppercase tracking-wider ${severityStyles[incident.severity]}`}>
                     {incident.severity}
                   </span>
+                  <SourceTag source={incident.sourceInfo} />
+                  <CredibilityBadge credibility={incident.sourceInfo.credibility} score={incident.sourceInfo.credibilityScore} />
                   <span className="text-[10px] text-muted-foreground">
                     {formatDistanceToNow(new Date(incident.createdAt), { addSuffix: true })}
                   </span>
                 </div>
                 <h4 className="text-sm font-medium text-foreground truncate">{incident.title}</h4>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <span className="text-[11px] text-muted-foreground">{incident.region}</span>
                   <span className="text-muted-foreground/30">•</span>
                   <span className="text-[11px] font-mono-data text-muted-foreground">Risk: {incident.riskScore}</span>
+                  {incident.corroboratedBy && incident.corroboratedBy.length > 0 && (
+                    <>
+                      <span className="text-muted-foreground/30">•</span>
+                      <span className="text-[10px] text-success/80">
+                        ✓ {incident.corroboratedBy.length} corroborating {incident.corroboratedBy.length === 1 ? 'source' : 'sources'}
+                      </span>
+                    </>
+                  )}
                 </div>
+                {incident.corroboratedBy && incident.corroboratedBy.length > 0 && (
+                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                    <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">Also reported by:</span>
+                    {incident.corroboratedBy.map((s, idx) => (
+                      <span key={idx} className="text-[9px] px-1.5 py-0.5 rounded bg-secondary/50 text-muted-foreground border border-border/30">
+                        {s.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
