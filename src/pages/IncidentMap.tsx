@@ -1,8 +1,8 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
-import { mockIncidents } from '@/data/mockData';
+import { useEffect, useRef, useState } from 'react';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { mockIncidents } from '@/data/mockData';
 import type { IncidentCategory, Severity } from '@/types/crisis';
 
 const severityRadius: Record<Severity, number> = {
@@ -21,15 +21,10 @@ const severityColor: Record<Severity, string> = {
 
 const categories: IncidentCategory[] = ['violence', 'protest', 'natural_disaster', 'infrastructure', 'health', 'terrorism', 'cyber', 'other'];
 
-function MapController() {
-  const map = useMap();
-  useEffect(() => {
-    map.invalidateSize();
-  }, [map]);
-  return null;
-}
-
 export default function IncidentMap() {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstance = useRef<L.Map | null>(null);
+  const markersLayer = useRef<L.LayerGroup | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<Set<IncidentCategory>>(new Set(categories));
   const [timeRange, setTimeRange] = useState('24h');
 
@@ -42,7 +37,63 @@ export default function IncidentMap() {
     });
   };
 
-  const filteredIncidents = mockIncidents.filter((i) => selectedCategories.has(i.category));
+  // Initialize map
+  useEffect(() => {
+    if (!mapRef.current || mapInstance.current) return;
+
+    const map = L.map(mapRef.current, {
+      center: [33.8547, 35.8623],
+      zoom: 8,
+      zoomControl: true,
+    });
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+    }).addTo(map);
+
+    markersLayer.current = L.layerGroup().addTo(map);
+    mapInstance.current = map;
+
+    // Fix tile rendering on initial load
+    setTimeout(() => map.invalidateSize(), 100);
+
+    return () => {
+      map.remove();
+      mapInstance.current = null;
+    };
+  }, []);
+
+  // Update markers when filters change
+  useEffect(() => {
+    if (!markersLayer.current) return;
+    markersLayer.current.clearLayers();
+
+    const filtered = mockIncidents.filter((i) => selectedCategories.has(i.category));
+
+    filtered.forEach((incident) => {
+      const marker = L.circleMarker([incident.location.lat, incident.location.lng], {
+        radius: severityRadius[incident.severity],
+        color: severityColor[incident.severity],
+        fillColor: severityColor[incident.severity],
+        fillOpacity: 0.5,
+        weight: 2,
+      });
+
+      marker.bindPopup(`
+        <div style="min-width:200px;font-size:12px;">
+          <p style="font-weight:bold;font-size:14px;margin:0 0 4px;">${incident.title}</p>
+          <p style="color:#94a3b8;margin:0 0 4px;">${incident.description}</p>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <span style="text-transform:uppercase;font-weight:bold;color:${severityColor[incident.severity]}">${incident.severity}</span>
+            <span>Risk: ${incident.riskScore}</span>
+          </div>
+          <p style="margin:4px 0 0;">${incident.region} • ${incident.locationName}</p>
+        </div>
+      `);
+
+      marker.addTo(markersLayer.current!);
+    });
+  }, [selectedCategories]);
 
   return (
     <DashboardLayout>
@@ -82,43 +133,7 @@ export default function IncidentMap() {
 
         {/* Map */}
         <div className="flex-1 rounded-lg overflow-hidden border border-border/50">
-          <MapContainer
-            center={[33.8547, 35.8623]}
-            zoom={8}
-            className="h-full w-full"
-            style={{ background: 'hsl(var(--background))' }}
-          >
-            <MapController />
-            <TileLayer
-              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-            />
-            {filteredIncidents.map((incident) => (
-              <CircleMarker
-                key={incident.id}
-                center={[incident.location.lat, incident.location.lng]}
-                radius={severityRadius[incident.severity]}
-                pathOptions={{
-                  color: severityColor[incident.severity],
-                  fillColor: severityColor[incident.severity],
-                  fillOpacity: 0.5,
-                  weight: 2,
-                }}
-              >
-                <Popup>
-                  <div className="text-xs space-y-1 min-w-[200px]">
-                    <p className="font-bold text-sm">{incident.title}</p>
-                    <p className="text-muted-foreground">{incident.description}</p>
-                    <div className="flex gap-2 pt-1">
-                      <span className="uppercase font-bold" style={{ color: severityColor[incident.severity] }}>{incident.severity}</span>
-                      <span>Risk: {incident.riskScore}</span>
-                    </div>
-                    <p>{incident.region} • {incident.locationName}</p>
-                  </div>
-                </Popup>
-              </CircleMarker>
-            ))}
-          </MapContainer>
+          <div ref={mapRef} className="h-full w-full" style={{ background: 'hsl(var(--background))' }} />
         </div>
       </div>
     </DashboardLayout>
