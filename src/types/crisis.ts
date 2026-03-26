@@ -1,0 +1,62 @@
+export type Severity = 'low' | 'medium' | 'high' | 'critical';
+export type AlertSeverity = 'info' | 'warning' | 'critical' | 'emergency';
+export type IncidentCategory = 'violence' | 'protest' | 'natural_disaster' | 'infrastructure' | 'health' | 'terrorism' | 'cyber' | 'other';
+export type IncidentStatus = 'new' | 'processing' | 'analyzed' | 'escalated' | 'resolved' | 'false_alarm';
+
+export interface Incident {
+  id: string;
+  source: string;
+  title: string;
+  description: string;
+  category: IncidentCategory;
+  severity: Severity;
+  location: { lat: number; lng: number };
+  locationName: string;
+  region: string;
+  sentimentScore: number;
+  riskScore: number;
+  entities: string[];
+  keywords: string[];
+  status: IncidentStatus;
+  createdAt: string;
+}
+
+export interface RiskScore {
+  region: string;
+  overallScore: number;
+  sentimentComponent: number;
+  volumeComponent: number;
+  keywordComponent: number;
+  behaviorComponent: number;
+  geospatialComponent: number;
+  confidence: number;
+  calculatedAt: string;
+}
+
+export interface Alert {
+  id: string;
+  alertType: string;
+  severity: AlertSeverity;
+  title: string;
+  message: string;
+  recommendation: string;
+  region: string;
+  isAcknowledged: boolean;
+  createdAt: string;
+  linkedIncidents: string[];
+}
+
+export interface DashboardStats {
+  totalIncidents24h: number;
+  activeAlerts: number;
+  avgRiskScore: number;
+  riskTrend: number;
+  highestRiskRegion: string;
+}
+
+export interface TrendDataPoint {
+  time: string;
+  incidents: number;
+  riskScore: number;
+  sentiment: number;
+}
