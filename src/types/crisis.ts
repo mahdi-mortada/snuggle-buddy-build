@@ -2,10 +2,22 @@ export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type AlertSeverity = 'info' | 'warning' | 'critical' | 'emergency';
 export type IncidentCategory = 'violence' | 'protest' | 'natural_disaster' | 'infrastructure' | 'health' | 'terrorism' | 'cyber' | 'other';
 export type IncidentStatus = 'new' | 'processing' | 'analyzed' | 'escalated' | 'resolved' | 'false_alarm';
+export type CredibilityLevel = 'verified' | 'high' | 'moderate' | 'low' | 'unverified';
+
+export interface SourceInfo {
+  name: string;
+  type: 'tv' | 'newspaper' | 'news_agency' | 'social_media' | 'government' | 'ngo' | 'sensor';
+  credibility: CredibilityLevel;
+  credibilityScore: number; // 0-100
+  logoInitials: string;
+  url?: string;
+  verifiedBy?: string[];
+}
 
 export interface Incident {
   id: string;
   source: string;
+  sourceInfo: SourceInfo;
   title: string;
   description: string;
   category: IncidentCategory;
@@ -19,6 +31,7 @@ export interface Incident {
   keywords: string[];
   status: IncidentStatus;
   createdAt: string;
+  corroboratedBy?: SourceInfo[];
 }
 
 export interface RiskScore {
