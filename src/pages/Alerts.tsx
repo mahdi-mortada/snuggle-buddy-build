@@ -1,9 +1,10 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { mockAlerts } from '@/data/mockData';
+import { mockAlerts, mockIncidents } from '@/data/mockData';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, AlertOctagon, Info, Siren } from 'lucide-react';
 import type { AlertSeverity } from '@/types/crisis';
+import { SourceTag, CredibilityBadge } from '@/components/shared/SourceBadge';
 
 const tabs = ['All', 'Emergency', 'Critical', 'Warning', 'Acknowledged'] as const;
 

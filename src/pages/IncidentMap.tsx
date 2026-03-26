@@ -79,14 +79,22 @@ export default function IncidentMap() {
         weight: 2,
       });
 
+      const credColor = incident.sourceInfo.credibilityScore >= 80 ? '#22C55E' : incident.sourceInfo.credibilityScore >= 60 ? '#3B82F6' : incident.sourceInfo.credibilityScore >= 40 ? '#F59E0B' : '#EF4444';
+      const corrobText = incident.corroboratedBy?.length ? `<p style="margin:4px 0 0;color:#22C55E;font-size:11px;">✓ Also: ${incident.corroboratedBy.map(s => s.name).join(', ')}</p>` : '';
+
       marker.bindPopup(`
-        <div style="min-width:200px;font-size:12px;">
+        <div style="min-width:220px;font-size:12px;">
           <p style="font-weight:bold;font-size:14px;margin:0 0 4px;">${incident.title}</p>
           <p style="color:#94a3b8;margin:0 0 4px;">${incident.description}</p>
-          <div style="display:flex;gap:8px;margin-top:4px;">
+          <div style="display:flex;gap:8px;margin-top:4px;align-items:center;">
             <span style="text-transform:uppercase;font-weight:bold;color:${severityColor[incident.severity]}">${incident.severity}</span>
             <span>Risk: ${incident.riskScore}</span>
           </div>
+          <div style="margin:6px 0;padding:4px 6px;background:rgba(255,255,255,0.05);border-radius:4px;border:1px solid rgba(255,255,255,0.1);">
+            <span style="font-weight:600;">📰 ${incident.sourceInfo.name}</span>
+            <span style="margin-left:6px;color:${credColor};font-weight:bold;font-size:11px;">${incident.sourceInfo.credibility.toUpperCase()} (${incident.sourceInfo.credibilityScore}/100)</span>
+          </div>
+          ${corrobText}
           <p style="margin:4px 0 0;">${incident.region} • ${incident.locationName}</p>
         </div>
       `);
