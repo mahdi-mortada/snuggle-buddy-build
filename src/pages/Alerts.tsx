@@ -103,6 +103,43 @@ export default function Alerts() {
                       <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Situation</h4>
                       <p className="text-sm text-foreground/80">{alert.message}</p>
                     </div>
+
+                    {/* Linked incident sources */}
+                    {alert.linkedIncidents.length > 0 && (() => {
+                      const linkedIncidents = alert.linkedIncidents
+                        .map(id => mockIncidents.find(inc => inc.id === id))
+                        .filter(Boolean);
+                      if (linkedIncidents.length === 0) return null;
+                      return (
+                        <div>
+                          <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Sources & Credibility</h4>
+                          <div className="space-y-2">
+                            {linkedIncidents.map(inc => inc && (
+                              <div key={inc.id} className="bg-secondary/20 rounded-lg p-2.5 border border-border/20">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <SourceTag source={inc.sourceInfo} />
+                                  <CredibilityBadge credibility={inc.sourceInfo.credibility} score={inc.sourceInfo.credibilityScore} />
+                                  {inc.sourceInfo.verifiedBy && (
+                                    <span className="text-[9px] text-success/70">Verified by: {inc.sourceInfo.verifiedBy.join(', ')}</span>
+                                  )}
+                                </div>
+                                {inc.corroboratedBy && inc.corroboratedBy.length > 0 && (
+                                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                                    <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">Corroborated by:</span>
+                                    {inc.corroboratedBy.map((s, idx) => (
+                                      <span key={idx} className="text-[9px] px-1.5 py-0.5 rounded bg-success/10 text-success/80 border border-success/20">
+                                        {s.name} ({s.credibilityScore})
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div>
                       <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">AI Recommendation</h4>
                       <div className="bg-secondary/30 rounded-lg p-3 border border-border/30">
