@@ -1,4 +1,6 @@
 import type { CredibilityLevel, SourceInfo } from '@/types/crisis';
+import { useState } from 'react';
+import { SourceDetailDialog } from './SourceDetailDialog';
 
 const credibilityConfig: Record<CredibilityLevel, { label: string; color: string; bg: string; border: string }> = {
   verified: { label: 'Verified', color: 'text-success', bg: 'bg-success/10', border: 'border-success/30' },
@@ -9,13 +11,8 @@ const credibilityConfig: Record<CredibilityLevel, { label: string; color: string
 };
 
 const typeIcons: Record<string, string> = {
-  tv: '📺',
-  newspaper: '📰',
-  news_agency: '🏛️',
-  social_media: '💬',
-  government: '🛡️',
-  ngo: '🏥',
-  sensor: '📡',
+  tv: '📺', newspaper: '📰', news_agency: '🏛️', social_media: '💬',
+  government: '🛡️', ngo: '🏥', sensor: '📡',
 };
 
 export function CredibilityBadge({ credibility, score }: { credibility: CredibilityLevel; score: number }) {
@@ -29,14 +26,28 @@ export function CredibilityBadge({ credibility, score }: { credibility: Credibil
   );
 }
 
-export function SourceTag({ source, showType = true }: { source: SourceInfo; showType?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-accent/40 text-foreground/80 border border-border/30 font-medium">
+export function SourceTag({ source, showType = true, clickable = true }: { source: SourceInfo; showType?: boolean; clickable?: boolean }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const badge = (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-accent/40 text-foreground/80 border border-border/30 font-medium ${clickable ? 'cursor-pointer hover:bg-accent/70 hover:border-primary/30 transition-colors' : ''}`}
+      onClick={clickable ? (e) => { e.stopPropagation(); setDialogOpen(true); } : undefined}
+    >
       {showType && <span className="text-[9px]">{typeIcons[source.type] || '📋'}</span>}
       <span className="font-semibold">{source.logoInitials}</span>
       <span className="opacity-60">|</span>
       <span>{source.name}</span>
     </span>
+  );
+
+  if (!clickable) return badge;
+
+  return (
+    <>
+      {badge}
+      <SourceDetailDialog source={source} open={dialogOpen} onOpenChange={setDialogOpen} />
+    </>
   );
 }
 
