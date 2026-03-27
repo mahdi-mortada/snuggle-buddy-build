@@ -1,7 +1,9 @@
-import { mockRiskScores } from '@/data/mockData';
+import type { RiskScore } from '@/types/crisis';
+import { ChevronRight } from 'lucide-react';
+import { toast } from 'sonner';
 
-export function RegionalRiskList() {
-  const sorted = [...mockRiskScores].sort((a, b) => b.overallScore - a.overallScore);
+export function RegionalRiskList({ riskScores }: { riskScores: RiskScore[] }) {
+  const sorted = [...riskScores].sort((a, b) => b.overallScore - a.overallScore);
 
   const getBarColor = (score: number) => {
     if (score >= 80) return 'bg-critical';
@@ -22,12 +24,19 @@ export function RegionalRiskList() {
       <h3 className="text-sm font-semibold text-foreground mb-4">Regional Risk Levels</h3>
       <div className="flex-1 space-y-3 overflow-auto scrollbar-thin">
         {sorted.map((risk) => (
-          <div key={risk.region} className="space-y-1.5">
+          <button
+            key={risk.region}
+            onClick={() => toast.info(`${risk.region}: Score ${risk.overallScore}, Confidence ${(risk.confidence * 100).toFixed(0)}%`)}
+            className="w-full text-left space-y-1.5 p-2 -mx-2 rounded-lg hover:bg-accent/30 transition-colors group"
+          >
             <div className="flex items-center justify-between">
               <span className="text-xs text-foreground font-medium">{risk.region}</span>
-              <span className={`text-xs font-mono-data font-bold ${getTextColor(risk.overallScore)}`}>
-                {risk.overallScore}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className={`text-xs font-mono-data font-bold ${getTextColor(risk.overallScore)}`}>
+                  {risk.overallScore}
+                </span>
+                <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
             </div>
             <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
               <div
@@ -35,7 +44,7 @@ export function RegionalRiskList() {
                 style={{ width: `${risk.overallScore}%` }}
               />
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </div>

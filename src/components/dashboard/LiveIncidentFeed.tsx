@@ -1,6 +1,8 @@
-import { mockIncidents } from '@/data/mockData';
 import { formatDistanceToNow } from 'date-fns';
 import { CredibilityBadge, SourceTag } from '@/components/shared/SourceBadge';
+import { Eye, Share2, Flag } from 'lucide-react';
+import { toast } from 'sonner';
+import type { Incident } from '@/types/crisis';
 
 const severityStyles: Record<string, string> = {
   low: 'bg-success/15 text-success border-success/30',
@@ -10,34 +12,31 @@ const severityStyles: Record<string, string> = {
 };
 
 const categoryIcons: Record<string, string> = {
-  violence: '⚔️',
-  protest: '✊',
-  natural_disaster: '🌊',
-  infrastructure: '🏗️',
-  health: '🏥',
-  terrorism: '💣',
-  cyber: '🔒',
-  other: '📋',
+  violence: '⚔️', protest: '✊', natural_disaster: '🌊', infrastructure: '🏗️',
+  health: '🏥', terrorism: '💣', cyber: '🔒', other: '📋',
 };
 
-export function LiveIncidentFeed() {
+export function LiveIncidentFeed({ incidents }: { incidents: Incident[] }) {
   return (
     <div className="glass-panel h-full flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
         <h3 className="text-sm font-semibold text-foreground">Live Incident Feed</h3>
-        <div className="flex items-center gap-1.5">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
-          </span>
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Real-time</span>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-mono-data text-muted-foreground">{incidents.length} incidents</span>
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+            </span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Auto-refresh 30s</span>
+          </div>
         </div>
       </div>
       <div className="flex-1 overflow-auto scrollbar-thin divide-y divide-border/30">
-        {mockIncidents.map((incident, i) => (
+        {incidents.map((incident, i) => (
           <div
             key={incident.id}
-            className="px-4 py-3 hover:bg-accent/30 transition-colors cursor-pointer animate-slide-in"
+            className="px-4 py-3 hover:bg-accent/30 transition-colors cursor-pointer animate-slide-in group"
             style={{ animationDelay: `${i * 50}ms` }}
           >
             <div className="flex items-start gap-3">
@@ -71,12 +70,31 @@ export function LiveIncidentFeed() {
                   <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                     <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">Also reported by:</span>
                     {incident.corroboratedBy.map((s, idx) => (
-                      <span key={idx} className="text-[9px] px-1.5 py-0.5 rounded bg-secondary/50 text-muted-foreground border border-border/30">
-                        {s.name}
-                      </span>
+                      <SourceTag key={idx} source={s} showType={false} />
                     ))}
                   </div>
                 )}
+              </div>
+              {/* Action buttons - visible on hover */}
+              <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); toast.info(`Viewing details for: ${incident.title}`); }}
+                  className="p-1.5 rounded hover:bg-accent transition-colors" title="View details"
+                >
+                  <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); toast.success('Incident shared to team channel'); }}
+                  className="p-1.5 rounded hover:bg-accent transition-colors" title="Share"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); toast.warning('Incident flagged for review'); }}
+                  className="p-1.5 rounded hover:bg-accent transition-colors" title="Flag"
+                >
+                  <Flag className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
               </div>
             </div>
           </div>
