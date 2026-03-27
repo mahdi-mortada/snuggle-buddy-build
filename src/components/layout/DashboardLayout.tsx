@@ -1,5 +1,6 @@
 import { AppSidebar } from './AppSidebar';
 import { Header } from './Header';
+import { CrisisChat } from '@/components/chat/CrisisChat';
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -11,6 +12,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      <CrisisChat />
     </div>
   );
 }
