@@ -1,6 +1,6 @@
 import { formatDistanceToNow } from 'date-fns';
 import { CredibilityBadge, SourceTag } from '@/components/shared/SourceBadge';
-import { Eye, Share2, Flag } from 'lucide-react';
+import { Eye, Share2, Flag, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Incident } from '@/types/crisis';
 
@@ -28,7 +28,7 @@ export function LiveIncidentFeed({ incidents }: { incidents: Incident[] }) {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
             </span>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Auto-refresh 30s</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Live</span>
           </div>
         </div>
       </div>
@@ -53,10 +53,26 @@ export function LiveIncidentFeed({ incidents }: { incidents: Incident[] }) {
                   </span>
                 </div>
                 <h4 className="text-sm font-medium text-foreground truncate">{incident.title}</h4>
+                <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5">{incident.description}</p>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <span className="text-[11px] text-muted-foreground">{incident.region}</span>
                   <span className="text-muted-foreground/30">•</span>
                   <span className="text-[11px] font-mono-data text-muted-foreground">Risk: {incident.riskScore}</span>
+                  {incident.sourceUrl && (
+                    <>
+                      <span className="text-muted-foreground/30">•</span>
+                      <a
+                        href={incident.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 hover:underline transition-colors"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Source article
+                      </a>
+                    </>
+                  )}
                   {incident.corroboratedBy && incident.corroboratedBy.length > 0 && (
                     <>
                       <span className="text-muted-foreground/30">•</span>
@@ -77,6 +93,17 @@ export function LiveIncidentFeed({ incidents }: { incidents: Incident[] }) {
               </div>
               {/* Action buttons - visible on hover */}
               <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                {incident.sourceUrl && (
+                  <a
+                    href={incident.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-1.5 rounded hover:bg-accent transition-colors" title="Open source"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-primary" />
+                  </a>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); toast.info(`Viewing details for: ${incident.title}`); }}
                   className="p-1.5 rounded hover:bg-accent transition-colors" title="View details"

@@ -1,8 +1,8 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { mockAlerts, mockIncidents } from '@/data/mockData';
+import { useLiveData } from '@/hooks/useLiveData';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, AlertOctagon, Info, Siren, Share2, Download, Bell, BellOff } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, AlertOctagon, Info, Siren, Share2, Download, Bell, BellOff, ExternalLink } from 'lucide-react';
 import type { AlertSeverity } from '@/types/crisis';
 import { SourceTag, CredibilityBadge } from '@/components/shared/SourceBadge';
 import { toast } from 'sonner';
@@ -17,11 +17,12 @@ const severityConfig: Record<AlertSeverity, { icon: typeof AlertTriangle; color:
 };
 
 export default function Alerts() {
+  const { alerts, incidents } = useLiveData(30000);
   const [activeTab, setActiveTab] = useState<typeof tabs[number]>('All');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set(mockAlerts.filter(a => a.isAcknowledged).map(a => a.id)));
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set(alerts.filter(a => a.isAcknowledged).map(a => a.id)));
 
-  const filtered = mockAlerts.filter((a) => {
+  const filtered = alerts.filter((a) => {
     if (activeTab === 'All') return true;
     if (activeTab === 'Acknowledged') return acknowledged.has(a.id);
     return a.severity === activeTab.toLowerCase();
@@ -38,8 +39,8 @@ export default function Alerts() {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-bold text-foreground">Alerts</h1>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-mono-data">{mockAlerts.length - acknowledged.size} unacknowledged</span>
-            <button onClick={() => { setAcknowledged(new Set(mockAlerts.map(a => a.id))); toast.success('All alerts acknowledged'); }}
+            <span className="text-xs text-muted-foreground font-mono-data">{alerts.length - acknowledged.size} unacknowledged</span>
+            <button onClick={() => { setAcknowledged(new Set(alerts.map(a => a.id))); toast.success('All alerts acknowledged'); }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-success/10 text-success border border-success/20 hover:bg-success/20 transition-colors">
               <CheckCircle2 className="w-3.5 h-3.5" /> Acknowledge All
             </button>
@@ -56,7 +57,7 @@ export default function Alerts() {
               className={`px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${activeTab === tab ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
               {tab}
               {tab !== 'All' && tab !== 'Acknowledged' && (
-                <span className="ml-1.5 font-mono-data">({mockAlerts.filter((a) => a.severity === tab.toLowerCase()).length})</span>
+                <span className="ml-1.5 font-mono-data">({alerts.filter((a) => a.severity === tab.toLowerCase()).length})</span>
               )}
             </button>
           ))}
@@ -68,6 +69,9 @@ export default function Alerts() {
             const Icon = config.icon;
             const isExpanded = expandedId === alert.id;
             const isAck = acknowledged.has(alert.id);
+            // Find linked incident for source info
+            const linkedIncident = incidents.find(inc => alert.linkedIncidents.includes(inc.id));
+            const sourceUrl = (alert as any).sourceUrl || linkedIncident?.sourceUrl;
 
             return (
               <div key={alert.id} className={`glass-panel border ${config.border} overflow-hidden animate-fade-in-up`}>
@@ -84,6 +88,21 @@ export default function Alerts() {
                       <span>{alert.region}</span>
                       <span className="text-muted-foreground/30">•</span>
                       <span>{formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}</span>
+                      {sourceUrl && (
+                        <>
+                          <span className="text-muted-foreground/30">•</span>
+                          <a
+                            href={sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-primary hover:text-primary/80 hover:underline"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Source
+                          </a>
+                        </>
+                      )}
                     </div>
                   </div>
                   {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0 mt-1" /> : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />}
@@ -96,36 +115,28 @@ export default function Alerts() {
                       <p className="text-sm text-foreground/80">{alert.message}</p>
                     </div>
 
-                    {alert.linkedIncidents.length > 0 && (() => {
-                      const linkedIncidents = alert.linkedIncidents.map(id => mockIncidents.find(inc => inc.id === id)).filter(Boolean);
-                      if (linkedIncidents.length === 0) return null;
-                      return (
-                        <div>
-                          <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Sources & Credibility</h4>
-                          <div className="space-y-2">
-                            {linkedIncidents.map(inc => inc && (
-                              <div key={inc.id} className="bg-secondary/20 rounded-lg p-2.5 border border-border/20">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <SourceTag source={inc.sourceInfo} />
-                                  <CredibilityBadge credibility={inc.sourceInfo.credibility} score={inc.sourceInfo.credibilityScore} />
-                                  {inc.sourceInfo.verifiedBy && (
-                                    <span className="text-[9px] text-success/70">Verified by: {inc.sourceInfo.verifiedBy.join(', ')}</span>
-                                  )}
-                                </div>
-                                {inc.corroboratedBy && inc.corroboratedBy.length > 0 && (
-                                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                                    <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">Corroborated by:</span>
-                                    {inc.corroboratedBy.map((s, idx) => (
-                                      <SourceTag key={idx} source={s} showType={false} />
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
+                    {linkedIncident && (
+                      <div>
+                        <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Source & Credibility</h4>
+                        <div className="bg-secondary/20 rounded-lg p-2.5 border border-border/20">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <SourceTag source={linkedIncident.sourceInfo} />
+                            <CredibilityBadge credibility={linkedIncident.sourceInfo.credibility} score={linkedIncident.sourceInfo.credibilityScore} />
+                            {linkedIncident.sourceUrl && (
+                              <a
+                                href={linkedIncident.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                Read original article
+                              </a>
+                            )}
                           </div>
                         </div>
-                      );
-                    })()}
+                      </div>
+                    )}
 
                     <div>
                       <h4 className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">AI Recommendation</h4>
@@ -138,6 +149,16 @@ export default function Alerts() {
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-2 flex-wrap">
+                      {sourceUrl && (
+                        <a
+                          href={sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-4 py-2 bg-primary/10 text-primary text-sm font-medium rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors"
+                        >
+                          <ExternalLink className="w-4 h-4" /> View Source
+                        </a>
+                      )}
                       {!isAck && (
                         <button onClick={() => handleAcknowledge(alert.id)}
                           className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors">

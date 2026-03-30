@@ -2,7 +2,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { mockIncidents } from '@/data/mockData';
+import { useLiveData } from '@/hooks/useLiveData';
 import type { IncidentCategory, Severity } from '@/types/crisis';
 
 const severityRadius: Record<Severity, number> = {
@@ -27,6 +27,7 @@ export default function IncidentMap() {
   const markersLayer = useRef<L.LayerGroup | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<Set<IncidentCategory>>(new Set(categories));
   const [timeRange, setTimeRange] = useState('24h');
+  const { incidents, lastUpdated } = useLiveData(30000);
 
   const toggleCategory = (cat: IncidentCategory) => {
     setSelectedCategories((prev) => {
@@ -54,7 +55,6 @@ export default function IncidentMap() {
     markersLayer.current = L.layerGroup().addTo(map);
     mapInstance.current = map;
 
-    // Fix tile rendering on initial load
     setTimeout(() => map.invalidateSize(), 100);
 
     return () => {
@@ -63,12 +63,12 @@ export default function IncidentMap() {
     };
   }, []);
 
-  // Update markers when filters change
+  // Update markers when incidents or filters change
   useEffect(() => {
     if (!markersLayer.current) return;
     markersLayer.current.clearLayers();
 
-    const filtered = mockIncidents.filter((i) => selectedCategories.has(i.category));
+    const filtered = incidents.filter((i) => selectedCategories.has(i.category));
 
     filtered.forEach((incident) => {
       const marker = L.circleMarker([incident.location.lat, incident.location.lng], {
@@ -81,9 +81,12 @@ export default function IncidentMap() {
 
       const credColor = incident.sourceInfo.credibilityScore >= 80 ? '#22C55E' : incident.sourceInfo.credibilityScore >= 60 ? '#3B82F6' : incident.sourceInfo.credibilityScore >= 40 ? '#F59E0B' : '#EF4444';
       const corrobText = incident.corroboratedBy?.length ? `<p style="margin:4px 0 0;color:#22C55E;font-size:11px;">✓ Also: ${incident.corroboratedBy.map(s => s.name).join(', ')}</p>` : '';
+      const sourceLink = incident.sourceUrl
+        ? `<a href="${incident.sourceUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;color:#3B82F6;font-size:11px;text-decoration:none;">🔗 Read full article at ${incident.sourceInfo.name}</a>`
+        : '';
 
       marker.bindPopup(`
-        <div style="min-width:220px;font-size:12px;">
+        <div style="min-width:240px;font-size:12px;">
           <p style="font-weight:bold;font-size:14px;margin:0 0 4px;">${incident.title}</p>
           <p style="color:#94a3b8;margin:0 0 4px;">${incident.description}</p>
           <div style="display:flex;gap:8px;margin-top:4px;align-items:center;">
@@ -95,13 +98,14 @@ export default function IncidentMap() {
             <span style="margin-left:6px;color:${credColor};font-weight:bold;font-size:11px;">${incident.sourceInfo.credibility.toUpperCase()} (${incident.sourceInfo.credibilityScore}/100)</span>
           </div>
           ${corrobText}
+          ${sourceLink}
           <p style="margin:4px 0 0;">${incident.region} • ${incident.locationName}</p>
         </div>
       `);
 
       marker.addTo(markersLayer.current!);
     });
-  }, [selectedCategories]);
+  }, [selectedCategories, incidents]);
 
   return (
     <DashboardLayout>
@@ -136,6 +140,9 @@ export default function IncidentMap() {
                 {cat.replace('_', ' ')}
               </button>
             ))}
+          </div>
+          <div className="ml-auto text-[10px] text-muted-foreground font-mono-data">
+            Last updated: {lastUpdated.toLocaleTimeString()}
           </div>
         </div>
 
