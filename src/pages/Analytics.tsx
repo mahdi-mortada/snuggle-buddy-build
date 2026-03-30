@@ -6,44 +6,7 @@ import {
   AreaChart, Area,
 } from 'recharts';
 import { format } from 'date-fns';
-
-const riskBreakdownData = riskScores.map((r) => ({
-  region: r.region.replace(' Lebanon', '').replace('Baalbek-Hermel', 'B-Hermel'),
-  Sentiment: r.sentimentComponent,
-  Volume: r.volumeComponent,
-  Keyword: r.keywordComponent,
-  Behavior: r.behaviorComponent,
-  Geospatial: r.geospatialComponent,
-}));
-
-const topRegion = riskScores.reduce((a, b) => a.overallScore > b.overallScore ? a : b);
-const radarData = [
-  { subject: 'Sentiment', value: topRegion.sentimentComponent },
-  { subject: 'Volume', value: topRegion.volumeComponent },
-  { subject: 'Keyword', value: topRegion.keywordComponent },
-  { subject: 'Behavior', value: topRegion.behaviorComponent },
-  { subject: 'Geospatial', value: topRegion.geospatialComponent },
-];
-
-const sentimentData = trendData.slice(-72).map((d) => ({
-  time: format(new Date(d.time), 'MMM dd HH:mm'),
-  sentiment: d.sentiment,
-}));
-
-const predictionData = trendData.slice(-24).map((d, i) => ({
-  time: format(new Date(d.time), 'HH:mm'),
-  actual: d.riskScore,
-  predicted: i > 12 ? d.riskScore + (Math.random() * 10 - 3) : undefined,
-  upper: i > 12 ? d.riskScore + 15 : undefined,
-  lower: i > 12 ? d.riskScore - 10 : undefined,
-}));
-
-const anomalies = [
-  { id: 1, timestamp: '2026-03-26 08:15', region: 'Beirut', type: 'Volume Spike', score: -0.82, details: 'Incident volume 3.2x above baseline' },
-  { id: 2, timestamp: '2026-03-26 06:42', region: 'North Lebanon', type: 'Sentiment Shift', score: -0.71, details: 'Rapid negative sentiment acceleration' },
-  { id: 3, timestamp: '2026-03-25 22:10', region: 'Mount Lebanon', type: 'Behavior Anomaly', score: -0.65, details: 'Coordinated posting pattern detected' },
-  { id: 4, timestamp: '2026-03-25 18:33', region: 'Bekaa', type: 'Keyword Surge', score: -0.58, details: 'Threat keyword frequency 2.8x above normal' },
-];
+import { useMemo } from 'react';
 
 const tooltipStyle = {
   contentStyle: { backgroundColor: 'hsl(222 47% 11%)', border: '1px solid hsl(215 28% 22%)', borderRadius: '8px', fontSize: '12px', color: '#e2e8f0' },
@@ -51,12 +14,52 @@ const tooltipStyle = {
 
 export default function Analytics() {
   const { riskScores, trendData } = useLiveData(30000);
+
+  const riskBreakdownData = useMemo(() => riskScores.map((r) => ({
+    region: r.region.replace(' Lebanon', '').replace('Baalbek-Hermel', 'B-Hermel'),
+    Sentiment: r.sentimentComponent,
+    Volume: r.volumeComponent,
+    Keyword: r.keywordComponent,
+    Behavior: r.behaviorComponent,
+    Geospatial: r.geospatialComponent,
+  })), [riskScores]);
+
+  const topRegion = useMemo(() => riskScores.reduce((a, b) => a.overallScore > b.overallScore ? a : b), [riskScores]);
+  
+  const radarData = useMemo(() => [
+    { subject: 'Sentiment', value: topRegion.sentimentComponent },
+    { subject: 'Volume', value: topRegion.volumeComponent },
+    { subject: 'Keyword', value: topRegion.keywordComponent },
+    { subject: 'Behavior', value: topRegion.behaviorComponent },
+    { subject: 'Geospatial', value: topRegion.geospatialComponent },
+  ], [topRegion]);
+
+  const sentimentData = useMemo(() => trendData.slice(-72).map((d) => ({
+    time: format(new Date(d.time), 'MMM dd HH:mm'),
+    sentiment: d.sentiment,
+  })), [trendData]);
+
+  const predictionData = useMemo(() => trendData.slice(-24).map((d, i) => ({
+    time: format(new Date(d.time), 'HH:mm'),
+    actual: d.riskScore,
+    predicted: i > 12 ? d.riskScore + (Math.random() * 10 - 3) : undefined,
+    upper: i > 12 ? d.riskScore + 15 : undefined,
+    lower: i > 12 ? d.riskScore - 10 : undefined,
+  })), [trendData]);
+
+  const anomalies = [
+    { id: 1, timestamp: '2026-03-30 08:15', region: 'Beirut', type: 'Volume Spike', score: -0.82, details: 'Incident volume 3.2x above baseline' },
+    { id: 2, timestamp: '2026-03-30 06:42', region: 'North Lebanon', type: 'Sentiment Shift', score: -0.71, details: 'Rapid negative sentiment acceleration' },
+    { id: 3, timestamp: '2026-03-29 22:10', region: 'Mount Lebanon', type: 'Behavior Anomaly', score: -0.65, details: 'Coordinated posting pattern detected' },
+    { id: 4, timestamp: '2026-03-29 18:33', region: 'Bekaa', type: 'Keyword Surge', score: -0.58, details: 'Threat keyword frequency 2.8x above normal' },
+  ];
+
+  return (
     <DashboardLayout>
       <div className="space-y-6">
         <h1 className="text-xl font-bold text-foreground">Analytics & Intelligence</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Risk Breakdown */}
           <div className="lg:col-span-2 glass-panel p-4" style={{ height: '350px' }}>
             <h3 className="text-sm font-semibold text-foreground mb-3">Risk Score Breakdown by Region</h3>
             <ResponsiveContainer width="100%" height="90%">
@@ -74,7 +77,6 @@ export default function Analytics() {
             </ResponsiveContainer>
           </div>
 
-          {/* Radar */}
           <div className="glass-panel p-4" style={{ height: '350px' }}>
             <h3 className="text-sm font-semibold text-foreground mb-1">Top Risk Region: {topRegion.region}</h3>
             <p className="text-[10px] text-muted-foreground mb-2">Component Analysis</p>
@@ -90,7 +92,6 @@ export default function Analytics() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Sentiment */}
           <div className="glass-panel p-4" style={{ height: '300px' }}>
             <h3 className="text-sm font-semibold text-foreground mb-3">Sentiment Trend (72h)</h3>
             <ResponsiveContainer width="100%" height="85%">
@@ -104,7 +105,6 @@ export default function Analytics() {
             </ResponsiveContainer>
           </div>
 
-          {/* Prediction */}
           <div className="glass-panel p-4" style={{ height: '300px' }}>
             <h3 className="text-sm font-semibold text-foreground mb-3">Risk Prediction (24h Forecast)</h3>
             <ResponsiveContainer width="100%" height="85%">
@@ -122,7 +122,6 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Anomaly Log */}
         <div className="glass-panel p-4">
           <h3 className="text-sm font-semibold text-foreground mb-4">Anomaly Detection Log</h3>
           <div className="overflow-x-auto">
