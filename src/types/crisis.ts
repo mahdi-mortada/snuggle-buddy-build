@@ -18,6 +18,7 @@ export interface Incident {
   id: string;
   source: string;
   sourceInfo: SourceInfo;
+  sourceUrl?: string;
   title: string;
   description: string;
   category: IncidentCategory;
