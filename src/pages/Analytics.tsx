@@ -1,5 +1,5 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { mockRiskScores, mockTrendData } from '@/data/mockData';
+import { useLiveData } from '@/hooks/useLiveData';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { format } from 'date-fns';
 
-const riskBreakdownData = mockRiskScores.map((r) => ({
+const riskBreakdownData = riskScores.map((r) => ({
   region: r.region.replace(' Lebanon', '').replace('Baalbek-Hermel', 'B-Hermel'),
   Sentiment: r.sentimentComponent,
   Volume: r.volumeComponent,
@@ -16,7 +16,7 @@ const riskBreakdownData = mockRiskScores.map((r) => ({
   Geospatial: r.geospatialComponent,
 }));
 
-const topRegion = mockRiskScores.reduce((a, b) => a.overallScore > b.overallScore ? a : b);
+const topRegion = riskScores.reduce((a, b) => a.overallScore > b.overallScore ? a : b);
 const radarData = [
   { subject: 'Sentiment', value: topRegion.sentimentComponent },
   { subject: 'Volume', value: topRegion.volumeComponent },
@@ -25,12 +25,12 @@ const radarData = [
   { subject: 'Geospatial', value: topRegion.geospatialComponent },
 ];
 
-const sentimentData = mockTrendData.slice(-72).map((d) => ({
+const sentimentData = trendData.slice(-72).map((d) => ({
   time: format(new Date(d.time), 'MMM dd HH:mm'),
   sentiment: d.sentiment,
 }));
 
-const predictionData = mockTrendData.slice(-24).map((d, i) => ({
+const predictionData = trendData.slice(-24).map((d, i) => ({
   time: format(new Date(d.time), 'HH:mm'),
   actual: d.riskScore,
   predicted: i > 12 ? d.riskScore + (Math.random() * 10 - 3) : undefined,
@@ -50,7 +50,7 @@ const tooltipStyle = {
 };
 
 export default function Analytics() {
-  return (
+  const { riskScores, trendData } = useLiveData(30000);
     <DashboardLayout>
       <div className="space-y-6">
         <h1 className="text-xl font-bold text-foreground">Analytics & Intelligence</h1>
