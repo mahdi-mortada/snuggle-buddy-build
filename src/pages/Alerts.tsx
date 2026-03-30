@@ -1,6 +1,6 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useLiveData } from '@/hooks/useLiveData';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, AlertOctagon, Info, Siren, Share2, Download, Bell, BellOff, ExternalLink } from 'lucide-react';
 import type { AlertSeverity } from '@/types/crisis';
@@ -17,10 +17,28 @@ const severityConfig: Record<AlertSeverity, { icon: typeof AlertTriangle; color:
 };
 
 export default function Alerts() {
-  const { alerts, incidents } = useLiveData(30000);
+  const { alerts, incidents, stats, lastUpdated } = useLiveData(30000);
   const [activeTab, setActiveTab] = useState<typeof tabs[number]>('All');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set(alerts.filter(a => a.isAcknowledged).map(a => a.id)));
+
+  // Keep acknowledged IDs aligned with the latest live alerts list
+  useEffect(() => {
+    setAcknowledged((prev) => {
+      const activeIds = new Set(alerts.map((a) => a.id));
+      const next = new Set<string>();
+
+      prev.forEach((id) => {
+        if (activeIds.has(id)) next.add(id);
+      });
+
+      alerts.forEach((a) => {
+        if (a.isAcknowledged) next.add(a.id);
+      });
+
+      return next;
+    });
+  }, [alerts]);
 
   const filtered = alerts.filter((a) => {
     if (activeTab === 'All') return true;
@@ -34,7 +52,7 @@ export default function Alerts() {
   };
 
   return (
-    <DashboardLayout>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated }}>
       <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-bold text-foreground">Alerts</h1>

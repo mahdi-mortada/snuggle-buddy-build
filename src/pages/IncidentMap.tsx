@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useLiveData } from '@/hooks/useLiveData';
-import type { IncidentCategory, Severity } from '@/types/crisis';
+import type { AlertSeverity, IncidentCategory, Severity } from '@/types/crisis';
 
 const severityRadius: Record<Severity, number> = {
   low: 6,
@@ -19,6 +19,20 @@ const severityColor: Record<Severity, string> = {
   critical: '#DC2626',
 };
 
+const alertSeverityRadius: Record<AlertSeverity, number> = {
+  info: 6,
+  warning: 9,
+  critical: 12,
+  emergency: 14,
+};
+
+const alertSeverityColor: Record<AlertSeverity, string> = {
+  info: '#22C55E',
+  warning: '#F59E0B',
+  critical: '#EF4444',
+  emergency: '#DC2626',
+};
+
 const categories: IncidentCategory[] = ['violence', 'protest', 'natural_disaster', 'infrastructure', 'health', 'terrorism', 'cyber', 'other'];
 
 export default function IncidentMap() {
@@ -27,7 +41,7 @@ export default function IncidentMap() {
   const markersLayer = useRef<L.LayerGroup | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<Set<IncidentCategory>>(new Set(categories));
   const [timeRange, setTimeRange] = useState('24h');
-  const { incidents, lastUpdated } = useLiveData(30000);
+  const { incidents, alerts, stats, lastUpdated } = useLiveData(30000);
 
   const toggleCategory = (cat: IncidentCategory) => {
     setSelectedCategories((prev) => {
@@ -68,13 +82,39 @@ export default function IncidentMap() {
     if (!markersLayer.current) return;
     markersLayer.current.clearLayers();
 
-    const filtered = incidents.filter((i) => selectedCategories.has(i.category));
+    const timeMs =
+      timeRange === '1h'
+        ? 1 * 3600 * 1000
+        : timeRange === '6h'
+          ? 6 * 3600 * 1000
+          : timeRange === '7d'
+            ? 7 * 24 * 3600 * 1000
+            : 24 * 3600 * 1000;
+
+    const alertIncidentIds = new Set(alerts.flatMap((a) => a.linkedIncidents));
+    const hasAlertLinks = alertIncidentIds.size > 0;
+    const cutoff = Date.now() - timeMs;
+
+    const filtered = incidents.filter((i) => {
+      const createdAt = new Date(i.createdAt).getTime();
+      const withinTime = Number.isFinite(createdAt) ? createdAt >= cutoff : true;
+      const categoryOk = selectedCategories.has(i.category);
+      const alertOk = !hasAlertLinks || alertIncidentIds.has(i.id);
+      return withinTime && categoryOk && alertOk;
+    });
 
     filtered.forEach((incident) => {
+      const linkedAlerts = alerts.filter((a) => a.linkedIncidents.includes(incident.id));
+      const severityRank: Record<AlertSeverity, number> = { emergency: 0, critical: 1, warning: 2, info: 3 };
+      const topAlert = linkedAlerts.slice().sort((a, b) => severityRank[a.severity] - severityRank[b.severity])[0];
+
+      const markerRadius = topAlert ? alertSeverityRadius[topAlert.severity] : severityRadius[incident.severity];
+      const markerColor = topAlert ? alertSeverityColor[topAlert.severity] : severityColor[incident.severity];
+
       const marker = L.circleMarker([incident.location.lat, incident.location.lng], {
-        radius: severityRadius[incident.severity],
-        color: severityColor[incident.severity],
-        fillColor: severityColor[incident.severity],
+        radius: markerRadius,
+        color: markerColor,
+        fillColor: markerColor,
         fillOpacity: 0.5,
         weight: 2,
       });
@@ -83,6 +123,17 @@ export default function IncidentMap() {
       const corrobText = incident.corroboratedBy?.length ? `<p style="margin:4px 0 0;color:#22C55E;font-size:11px;">✓ Also: ${incident.corroboratedBy.map(s => s.name).join(', ')}</p>` : '';
       const sourceLink = incident.sourceUrl
         ? `<a href="${incident.sourceUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;color:#3B82F6;font-size:11px;text-decoration:none;">🔗 Read full article at ${incident.sourceInfo.name}</a>`
+        : '';
+
+      const alertBlock = topAlert
+        ? `<div style="margin:8px 0 0;padding:4px 6px;background:rgba(255,255,255,0.05);border-radius:4px;border:1px solid rgba(255,255,255,0.1);">
+             <span style="display:block;font-size:11px;text-transform:uppercase;font-weight:800;color:${alertSeverityColor[topAlert.severity]};letter-spacing:0.2px;">
+               Alert: ${topAlert.severity}
+             </span>
+             <span style="display:block;margin-top:2px;font-size:12px;font-weight:700;line-height:1.2;color:#e2e8f0;">
+               ${topAlert.title}
+             </span>
+           </div>`
         : '';
 
       marker.bindPopup(`
@@ -100,15 +151,16 @@ export default function IncidentMap() {
           ${corrobText}
           ${sourceLink}
           <p style="margin:4px 0 0;">${incident.region} • ${incident.locationName}</p>
+          ${alertBlock}
         </div>
       `);
 
       marker.addTo(markersLayer.current!);
     });
-  }, [selectedCategories, incidents]);
+  }, [selectedCategories, incidents, alerts, timeRange]);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated }}>
       <div className="flex flex-col h-[calc(100vh-8rem)] gap-4">
         {/* Controls */}
         <div className="glass-panel p-3 flex items-center gap-4 flex-wrap">

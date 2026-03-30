@@ -1,8 +1,22 @@
 import { AppSidebar } from './AppSidebar';
 import { Header } from './Header';
 import { CrisisChat } from '@/components/chat/CrisisChat';
+import type { Alert, DashboardStats, Incident } from '@/types/crisis';
 
-export function DashboardLayout({ children }: { children: React.ReactNode }) {
+type LiveDataContext = {
+  incidents: Incident[];
+  alerts: Alert[];
+  stats: DashboardStats;
+  lastUpdated: Date;
+};
+
+export function DashboardLayout({
+  children,
+  liveData,
+}: {
+  children: React.ReactNode;
+  liveData?: LiveDataContext;
+}) {
   return (
     <div className="flex h-screen w-full overflow-hidden">
       <AppSidebar />
@@ -12,7 +26,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
-      <CrisisChat />
+      <CrisisChat
+        incidents={liveData?.incidents}
+        alerts={liveData?.alerts}
+        stats={liveData?.stats}
+        lastUpdated={liveData?.lastUpdated}
+      />
     </div>
   );
 }

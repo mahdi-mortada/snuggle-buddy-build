@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageSquare, X, Send, Bot, User, Loader2, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { toast } from 'sonner';
+import type { Alert, DashboardStats, Incident } from '@/types/crisis';
 
 type Message = { role: 'user' | 'assistant'; content: string };
 
@@ -14,7 +15,17 @@ const QUICK_PROMPTS = [
   "What regions need immediate attention?",
 ];
 
-export function CrisisChat() {
+export function CrisisChat({
+  incidents,
+  alerts,
+  stats,
+  lastUpdated,
+}: {
+  incidents?: Incident[];
+  alerts?: Alert[];
+  stats?: DashboardStats;
+  lastUpdated?: Date;
+}) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -55,13 +66,20 @@ export function CrisisChat() {
     };
 
     try {
+      const context = {
+        incidents: incidents?.slice(0, 10) ?? [],
+        alerts: alerts?.slice(0, 10) ?? [],
+        stats: stats ?? undefined,
+        lastUpdated: lastUpdated ? lastUpdated.toISOString() : undefined,
+      };
+
       const resp = await fetch(CHAT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({ messages: allMessages }),
+        body: JSON.stringify({ messages: allMessages, context }),
       });
 
       if (!resp.ok || !resp.body) {
@@ -131,7 +149,7 @@ export function CrisisChat() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, incidents, alerts, stats, lastUpdated]);
 
   return (
     <>

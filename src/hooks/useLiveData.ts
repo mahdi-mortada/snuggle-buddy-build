@@ -5,6 +5,102 @@ import { toast } from 'sonner';
 
 const NEWS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fetch-news`;
 
+const SEEN_SOURCE_URLS_KEY = "crisisshield.seenSourceUrls.v1";
+const SEEN_TITLES_KEY = "crisisshield.seenTitles.v1";
+
+function hashString(input: string): string {
+  // Simple deterministic hash for stable IDs (not crypto).
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0; // keep 32-bit
+  }
+  return Math.abs(hash).toString(16);
+}
+
+function loadSeenSourceUrls(): Set<string> {
+  try {
+    if (typeof window === "undefined") return new Set();
+    const raw = localStorage.getItem(SEEN_SOURCE_URLS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((x) => typeof x === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function loadSeenTitles(): string[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = localStorage.getItem(SEEN_TITLES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x) => typeof x === "string" && x.trim().length > 0).slice(-250);
+  } catch {
+    return [];
+  }
+}
+
+function persistSeenTitles(titles: string[]) {
+  try {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(SEEN_TITLES_KEY, JSON.stringify(titles.slice(-250)));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function tokenizeTitle(title: string): string[] {
+  // Keep Arabic + English alphanumerics; split into word tokens.
+  return title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function cosineSimilarityFromTitles(a: string, b: string): number {
+  const aTokens = tokenizeTitle(a);
+  const bTokens = tokenizeTitle(b);
+
+  // Avoid noisy similarity for very short titles.
+  if (aTokens.length < 3 || bTokens.length < 3) {
+    return a.trim().toLowerCase() === b.trim().toLowerCase() ? 1 : 0;
+  }
+
+  const freqA = new Map<string, number>();
+  const freqB = new Map<string, number>();
+  for (const t of aTokens) freqA.set(t, (freqA.get(t) || 0) + 1);
+  for (const t of bTokens) freqB.set(t, (freqB.get(t) || 0) + 1);
+
+  let dot = 0;
+  for (const [t, countA] of freqA.entries()) {
+    const countB = freqB.get(t) || 0;
+    dot += countA * countB;
+  }
+
+  let normA = 0;
+  for (const countA of freqA.values()) normA += countA * countA;
+  let normB = 0;
+  for (const countB of freqB.values()) normB += countB * countB;
+
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+function persistSeenSourceUrls(set: Set<string>) {
+  try {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(SEEN_SOURCE_URLS_KEY, JSON.stringify(Array.from(set).slice(-500)));
+  } catch {
+    // ignore storage failures (private mode, etc.)
+  }
+}
+
 function credibilityFromScore(score: number): CredibilityLevel {
   if (score >= 85) return 'verified';
   if (score >= 70) return 'high';
@@ -36,6 +132,13 @@ interface RawNewsItem {
   publishedAt: string;
 }
 
+function incidentIdFromRaw(item: RawNewsItem, index: number): string {
+  const seed = item.sourceUrl
+    ? `sourceUrl:${item.sourceUrl}`
+    : `fallback:${item.title}|${item.publishedAt}|${item.lat},${item.lng}|${item.region}|${index}`;
+  return `inc-${hashString(seed)}`;
+}
+
 function mapNewsToIncident(item: RawNewsItem, index: number): Incident {
   const credibility = credibilityFromScore(item.credibilityScore);
   const sourceInfo: SourceInfo = {
@@ -48,7 +151,7 @@ function mapNewsToIncident(item: RawNewsItem, index: number): Incident {
   };
 
   return {
-    id: `live-${Date.now()}-${index}`,
+    id: incidentIdFromRaw(item, index),
     source: item.sourceName.toLowerCase().replace(/\s+/g, '_'),
     sourceInfo,
     sourceUrl: item.sourceUrl,
@@ -74,6 +177,7 @@ function jitter(value: number, range: number) {
 
 export function useLiveData(refreshInterval = 30000) {
   const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
+  const incidentsRef = useRef<Incident[]>(mockIncidents);
   const [stats, setStats] = useState<DashboardStats>(mockStats);
   const [riskScores, setRiskScores] = useState<RiskScore[]>(mockRiskScores);
   const [alerts, setAlerts] = useState<Alert[]>(mockAlerts);
@@ -82,6 +186,8 @@ export function useLiveData(refreshInterval = 30000) {
   const [updateCount, setUpdateCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const lastFetchRef = useRef<number>(0);
+  const seenSourceUrlsRef = useRef<Set<string>>(loadSeenSourceUrls());
+  const seenTitlesRef = useRef<string[]>(loadSeenTitles());
 
   const fetchLiveNews = useCallback(async () => {
     // Throttle: don't fetch more often than every 25 seconds
@@ -96,7 +202,11 @@ export function useLiveData(refreshInterval = 30000) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          // Helps backend avoid duplicates when possible; client-side dedupe still applies.
+          seenSourceUrls: Array.from(seenSourceUrlsRef.current).slice(-40),
+          seenTitles: seenTitlesRef.current.slice(-30),
+        }),
       });
 
       if (!resp.ok) {
@@ -108,29 +218,82 @@ export function useLiveData(refreshInterval = 30000) {
       const newsItems: RawNewsItem[] = data.incidents || [];
 
       if (newsItems.length > 0) {
-        const liveIncidents = newsItems.map(mapNewsToIncident);
-        setIncidents(liveIncidents);
+        const fetchedIncidents = newsItems.map(mapNewsToIncident);
+
+        // Deduplicate by title similarity (blueprint requirement: cosine similarity > 0.85).
+        const acceptedIncidents: Incident[] = [];
+        const acceptedTitles: string[] = [];
+        const titleDupThreshold = 0.85;
+
+        for (const inc of fetchedIncidents) {
+          const title = inc.title || "";
+          if (!title) continue;
+
+          const dupInThisFetch = acceptedTitles.some((t) => cosineSimilarityFromTitles(t, title) > titleDupThreshold);
+          const dupInSeenHistory = seenTitlesRef.current.some((t) => cosineSimilarityFromTitles(t, title) > titleDupThreshold);
+
+          if (dupInThisFetch || dupInSeenHistory) continue;
+
+          acceptedIncidents.push(inc);
+          acceptedTitles.push(title);
+        }
+
+        // Persist seen URLs + titles to reduce duplicate news over time.
+        acceptedIncidents.forEach((inc) => {
+          if (inc.sourceUrl) seenSourceUrlsRef.current.add(inc.sourceUrl);
+          if (inc.title) seenTitlesRef.current.push(inc.title);
+        });
+        persistSeenSourceUrls(seenSourceUrlsRef.current);
+        persistSeenTitles(seenTitlesRef.current);
+        // Keep the in-memory list bounded to avoid O(n^2) growth.
+        if (seenTitlesRef.current.length > 250) {
+          seenTitlesRef.current = seenTitlesRef.current.slice(-250);
+        }
+
+        // Keep a rolling deduped incident set (stable IDs prevent repeats).
+        const byId = new Map<string, Incident>(incidentsRef.current.map((i) => [i.id, i]));
+        acceptedIncidents.forEach((inc) => byId.set(inc.id, inc));
+        const mergedIncidents = Array.from(byId.values())
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 30);
+        incidentsRef.current = mergedIncidents;
+        setIncidents(mergedIncidents);
+
+        // Use "last 24h" slice for stats/alerts so older items don't skew.
+        const cutoff24h = Date.now() - 24 * 3600 * 1000;
+        const incidentsLast24h = mergedIncidents.filter((i) => {
+          const t = new Date(i.createdAt).getTime();
+          return Number.isFinite(t) && t >= cutoff24h;
+        });
+        const baseIncidents = incidentsLast24h.length > 0 ? incidentsLast24h : mergedIncidents;
 
         // Update stats based on real data
-        const avgRisk = Math.round(liveIncidents.reduce((s, i) => s + i.riskScore, 0) / liveIncidents.length);
-        const critCount = liveIncidents.filter(i => i.severity === 'critical' || i.severity === 'high').length;
+        const avgRisk = Math.round(baseIncidents.reduce((s, i) => s + i.riskScore, 0) / baseIncidents.length);
+        const critCount = baseIncidents.filter((i) => i.severity === 'critical' || i.severity === 'high').length;
+        const topRiskIncident = [...baseIncidents].sort((a, b) => b.riskScore - a.riskScore)[0];
+
         setStats(prev => ({
           ...prev,
-          totalIncidents24h: liveIncidents.length,
+          totalIncidents24h: baseIncidents.length,
           activeAlerts: critCount,
           avgRiskScore: avgRisk,
           riskTrend: Math.round((Math.random() * 10 - 3) * 10) / 10,
-          highestRiskRegion: liveIncidents.sort((a, b) => b.riskScore - a.riskScore)[0]?.region || prev.highestRiskRegion,
+          highestRiskRegion: topRiskIncident?.region || prev.highestRiskRegion,
         }));
 
         // Build alerts from critical/high severity incidents
-        const newAlerts: Alert[] = liveIncidents
-          .filter(i => i.severity === 'critical' || i.severity === 'high')
-          .slice(0, 7)
-          .map((inc, idx) => ({
-            id: `alert-live-${idx}`,
-            alertType: inc.severity === 'critical' ? 'threshold_breach' : 'escalation',
-            severity: inc.severity === 'critical' ? 'emergency' as const : 'warning' as const,
+        const criticalIncidents = [...baseIncidents]
+          .filter((i) => i.severity === 'critical' || i.severity === 'high')
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 7);
+
+        const newAlerts: Alert[] = criticalIncidents.map((inc) => {
+          const alertType = inc.severity === 'critical' ? 'threshold_breach' : 'escalation';
+          const severity = inc.severity === 'critical' ? ('emergency' as const) : ('warning' as const);
+          return {
+            id: `alert-${inc.id}-${alertType}`,
+            alertType,
+            severity,
             title: inc.title,
             message: inc.description,
             recommendation: `Verify via ${inc.sourceInfo.name}. Cross-reference with other sources. Monitor for escalation.`,
@@ -138,13 +301,14 @@ export function useLiveData(refreshInterval = 30000) {
             isAcknowledged: false,
             createdAt: inc.createdAt,
             linkedIncidents: [inc.id],
-            sourceUrl: inc.sourceUrl,
-          }));
-        if (newAlerts.length > 0) setAlerts(newAlerts);
+          };
+        });
+
+        setAlerts(newAlerts);
 
         // Update regional risk scores from incidents
         const regionMap = new Map<string, number[]>();
-        liveIncidents.forEach(i => {
+        baseIncidents.forEach((i) => {
           const arr = regionMap.get(i.region) || [];
           arr.push(i.riskScore);
           regionMap.set(i.region, arr);
@@ -158,7 +322,7 @@ export function useLiveData(refreshInterval = 30000) {
           return r;
         }));
 
-        toast.success(`Live feed updated: ${liveIncidents.length} incidents from real sources`);
+        toast.success(`Live feed updated: ${acceptedIncidents.length} new unique incidents`);
       }
     } catch (e) {
       console.error('Live news fetch error:', e);

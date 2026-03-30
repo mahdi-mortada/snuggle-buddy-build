@@ -13,7 +13,7 @@ const tooltipStyle = {
 };
 
 export default function Analytics() {
-  const { riskScores, trendData } = useLiveData(30000);
+  const { riskScores, trendData, incidents, alerts, stats, lastUpdated } = useLiveData(30000);
 
   const riskBreakdownData = useMemo(() => riskScores.map((r) => ({
     region: r.region.replace(' Lebanon', '').replace('Baalbek-Hermel', 'B-Hermel'),
@@ -55,7 +55,7 @@ export default function Analytics() {
   ];
 
   return (
-    <DashboardLayout>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated }}>
       <div className="space-y-6">
         <h1 className="text-xl font-bold text-foreground">Analytics & Intelligence</h1>
 

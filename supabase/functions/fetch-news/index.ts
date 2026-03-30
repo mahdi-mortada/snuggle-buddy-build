@@ -59,7 +59,75 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
+    let reqBody: any = {};
+    try {
+      reqBody = await req.json();
+    } catch {
+      // ignore - allow empty body
+    }
+
+    const seenSourceUrls: string[] = Array.isArray(reqBody?.seenSourceUrls)
+      ? reqBody.seenSourceUrls.filter((x: unknown) => typeof x === "string" && x.length > 0)
+      : [];
+
+    const seenTitles: string[] = Array.isArray(reqBody?.seenTitles)
+      ? reqBody.seenTitles.filter((x: unknown) => typeof x === "string" && x.trim().length > 0)
+      : [];
+
+    const limit: number = typeof reqBody?.limit === "number" ? Math.max(5, Math.min(25, reqBody.limit)) : 12;
+
+    const seenList = seenSourceUrls.slice(0, 50).join(", ");
+    const seenTitleList = seenTitles.slice(0, 20).join(" | ");
+
+    const tokenizeTitle = (title: string): string[] => {
+      // Keep Arabic + English tokens.
+      return title
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+    };
+
+    const cosineSimilarityFromTokens = (aTokens: string[], bTokens: string[]): number => {
+      if (aTokens.length < 3 || bTokens.length < 3) {
+        return aTokens.join(" ") === bTokens.join(" ") ? 1 : 0;
+      }
+
+      const freqA = new Map<string, number>();
+      const freqB = new Map<string, number>();
+      for (const t of aTokens) freqA.set(t, (freqA.get(t) || 0) + 1);
+      for (const t of bTokens) freqB.set(t, (freqB.get(t) || 0) + 1);
+
+      let dot = 0;
+      for (const [t, countA] of freqA.entries()) {
+        const countB = freqB.get(t) || 0;
+        dot += countA * countB;
+      }
+
+      let normA = 0;
+      for (const countA of freqA.values()) normA += countA * countA;
+      let normB = 0;
+      for (const countB of freqB.values()) normB += countB * countB;
+      if (normA === 0 || normB === 0) return 0;
+
+      return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    };
+
+    const titleSimilarity = (a: string, b: string): number => {
+      const aTokens = tokenizeTitle(a);
+      const bTokens = tokenizeTitle(b);
+      return cosineSimilarityFromTokens(aTokens, bTokens);
+    };
+
     const prompt = `Today is ${today()}. Search the web for the LATEST Lebanon news from the past 24-48 hours. 
+
+Avoid returning any incident whose sourceUrl appears in this list (do not output duplicates):
+${seenList || "(none)"}
+
+Also avoid returning any incident whose title is nearly identical to one of these previous titles
+(treat cosine similarity of title text > 0.85 as duplicates):
+${seenTitleList || "(none)"}
 
 Search these sources specifically:
 - LBCI (lbci.com)
@@ -75,7 +143,7 @@ Search these sources specifically:
 - Lebanese Red Cross updates
 - Reuters / AFP Lebanon coverage
 
-Return 10-15 REAL, CURRENT news items from today or the past 48 hours. 
+Return exactly ${limit} REAL, CURRENT news items from today or the past 48 hours. 
 Each must have a REAL working URL to the actual article.
 Focus on: security, politics, economy, protests, infrastructure, health, and humanitarian issues in Lebanon.
 Provide accurate GPS coordinates for each incident location.
@@ -110,7 +178,7 @@ DO NOT invent or fabricate any news. Only return real, verifiable current events
     
     // Extract from tool call response
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    let incidents = [];
+    let incidents: any[] = [];
     
     if (toolCall?.function?.arguments) {
       try {
@@ -134,7 +202,42 @@ DO NOT invent or fabricate any news. Only return real, verifiable current events
       } catch { /* ignore */ }
     }
 
-    return new Response(JSON.stringify({ incidents, fetchedAt: new Date().toISOString() }), {
+    // Extra safety: dedupe and remove already-seen items.
+    const seenSet = new Set(seenSourceUrls);
+    const deduped: any[] = [];
+    const dedupedSeenUrls = new Set<string>();
+    const dedupedSeenTitles: string[] = [];
+    const titleDupThreshold = 0.85;
+    for (const inc of incidents) {
+      const url = inc?.sourceUrl;
+      if (typeof url !== "string" || url.length === 0) {
+        // If no sourceUrl exists, keep it (best-effort), but avoid duplicates by title if possible.
+        const title = typeof inc?.title === "string" ? inc.title : JSON.stringify(inc).slice(0, 80);
+        const key = `noUrl:${title}`;
+        if (dedupedSeenUrls.has(key)) continue;
+        dedupedSeenUrls.add(key);
+        deduped.push(inc);
+        if (typeof inc?.title === "string" && inc.title.trim().length > 0) {
+          dedupedSeenTitles.push(inc.title);
+        }
+        continue;
+      }
+      if (seenSet.has(url)) continue;
+      if (dedupedSeenUrls.has(url)) continue;
+
+      const incTitle = typeof inc?.title === "string" ? inc.title : "";
+      if (incTitle) {
+        const dupByTitleSeen = seenTitles.some((t) => titleSimilarity(t, incTitle) > titleDupThreshold);
+        const dupByTitleInThisBatch = dedupedSeenTitles.some((t) => titleSimilarity(t, incTitle) > titleDupThreshold);
+        if (dupByTitleSeen || dupByTitleInThisBatch) continue;
+      }
+
+      dedupedSeenUrls.add(url);
+      deduped.push(inc);
+      if (incTitle) dedupedSeenTitles.push(incTitle);
+    }
+
+    return new Response(JSON.stringify({ incidents: deduped, fetchedAt: new Date().toISOString() }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

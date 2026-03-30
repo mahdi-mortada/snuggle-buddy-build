@@ -10,10 +10,10 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 export default function Dashboard() {
-  const { incidents, stats, riskScores, trendData, lastUpdated, updateCount, refresh } = useLiveData(30000);
+  const { incidents, stats, alerts, riskScores, trendData, lastUpdated, updateCount, refresh } = useLiveData(30000);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated }}>
       <div className="space-y-6">
         {/* Top bar with actions */}
         <div className="flex items-center justify-between flex-wrap gap-2">
