@@ -74,3 +74,17 @@ export interface TrendDataPoint {
   riskScore: number;
   sentiment: number;
 }
+
+export interface OfficialFeedPost {
+  id: string;
+  platform: 'telegram' | 'x';
+  publisherName: string;
+  accountLabel: string;
+  accountHandle: string;
+  accountUrl: string;
+  postUrl: string;
+  content: string;
+  signalTags: string[];
+  sourceInfo: SourceInfo;
+  publishedAt: string;
+}

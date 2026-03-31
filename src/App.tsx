@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import IncidentMap from "./pages/IncidentMap";
 import Analytics from "./pages/Analytics";
 import Alerts from "./pages/Alerts";
+import OfficialFeeds from "./pages/OfficialFeeds";
 import Login from "./pages/Login";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
@@ -21,6 +22,7 @@ const App = () => (
           <Route path="/" element={<Dashboard />} />
           <Route path="/map" element={<IncidentMap />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/official-feeds" element={<OfficialFeeds />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/login" element={<Login />} />

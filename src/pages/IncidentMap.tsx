@@ -41,7 +41,7 @@ export default function IncidentMap() {
   const markersLayer = useRef<L.LayerGroup | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<Set<IncidentCategory>>(new Set(categories));
   const [timeRange, setTimeRange] = useState('24h');
-  const { incidents, alerts, stats, lastUpdated } = useLiveData(30000);
+  const { incidents, alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
 
   const toggleCategory = (cat: IncidentCategory) => {
     setSelectedCategories((prev) => {
@@ -160,7 +160,7 @@ export default function IncidentMap() {
   }, [selectedCategories, incidents, alerts, timeRange]);
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
       <div className="flex flex-col h-[calc(100vh-8rem)] gap-4">
         {/* Controls */}
         <div className="glass-panel p-3 flex items-center gap-4 flex-wrap">

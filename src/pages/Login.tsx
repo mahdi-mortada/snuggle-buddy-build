@@ -6,10 +6,16 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter your email and password.');
+      return;
+    }
+    setError('');
     navigate('/');
   };
 
@@ -56,6 +62,9 @@ export default function Login() {
               </button>
             </div>
           </div>
+          {error && (
+            <p className="text-xs text-critical text-center -mt-1">{error}</p>
+          )}
           <button
             type="submit"
             className="w-full py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors glow-primary"

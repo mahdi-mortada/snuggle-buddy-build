@@ -2,11 +2,12 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageSquare, X, Send, Bot, User, Loader2, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { toast } from 'sonner';
+import { runtimeConfig } from '@/lib/runtimeConfig';
 import type { Alert, DashboardStats, Incident } from '@/types/crisis';
 
 type Message = { role: 'user' | 'assistant'; content: string };
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/crisis-chat`;
+const CHAT_URL = runtimeConfig.chatUrl;
 
 const QUICK_PROMPTS = [
   "Summarize current situation in Beirut",
@@ -14,6 +15,61 @@ const QUICK_PROMPTS = [
   "Assess credibility of latest reports",
   "What regions need immediate attention?",
 ];
+
+function buildLocalAssistantResponse({
+  prompt,
+  incidents = [],
+  alerts = [],
+  stats,
+  lastUpdated,
+}: {
+  prompt: string;
+  incidents?: Incident[];
+  alerts?: Alert[];
+  stats?: DashboardStats;
+  lastUpdated?: Date;
+}) {
+  const lowerPrompt = prompt.toLowerCase();
+  const criticalIncidents = incidents.filter((incident) => incident.severity === 'critical').slice(0, 3);
+  const topIncidents = incidents.slice(0, 3);
+  const topAlerts = alerts.slice(0, 3);
+  const lastUpdatedText = lastUpdated ? lastUpdated.toLocaleString() : 'just now';
+
+  const summaryLines = [
+    'Local demo mode is active, so this answer is based on the incidents already loaded in the UI rather than the live AI backend.',
+    `Total incidents shown: ${incidents.length}.`,
+    stats ? `Average risk score: ${stats.avgRiskScore}. Active alerts: ${stats.activeAlerts}. Highest-risk region: ${stats.highestRiskRegion}.` : null,
+    `Last dashboard refresh: ${lastUpdatedText}.`,
+  ].filter(Boolean);
+
+  if (lowerPrompt.includes('critical')) {
+    if (criticalIncidents.length === 0) {
+      return `${summaryLines.join('\n\n')}\n\nThere are no critical incidents in the current local dataset.`;
+    }
+
+    return `${summaryLines.join('\n\n')}\n\nCurrent critical incidents:\n${criticalIncidents
+      .map((incident) => `- ${incident.title} (${incident.region}, risk ${incident.riskScore})`)
+      .join('\n')}`;
+  }
+
+  if (lowerPrompt.includes('region') || lowerPrompt.includes('beirut')) {
+    return `${summaryLines.join('\n\n')}\n\nRegions that need attention right now:\n${topIncidents
+      .map((incident) => `- ${incident.region}: ${incident.title}`)
+      .join('\n')}`;
+  }
+
+  if (lowerPrompt.includes('credibility') || lowerPrompt.includes('source')) {
+    return `${summaryLines.join('\n\n')}\n\nTop sources in the local dataset:\n${topIncidents
+      .map((incident) => `- ${incident.sourceInfo.name}: ${incident.sourceInfo.credibility} credibility (${incident.sourceInfo.credibilityScore}/100)`)
+      .join('\n')}`;
+  }
+
+  return `${summaryLines.join('\n\n')}\n\nTop alerts:\n${topAlerts
+    .map((alert) => `- ${alert.title} (${alert.region})`)
+    .join('\n')}\n\nRecent incidents:\n${topIncidents
+    .map((incident) => `- ${incident.title}`)
+    .join('\n')}`;
+}
 
 export function CrisisChat({
   incidents,
@@ -73,24 +129,66 @@ export function CrisisChat({
         lastUpdated: lastUpdated ? lastUpdated.toISOString() : undefined,
       };
 
+      if (!runtimeConfig.hasChatBackend) {
+        upsertAssistant(buildLocalAssistantResponse({ prompt: text, incidents, alerts, stats, lastUpdated }));
+        return;
+      }
+
       const resp = await fetch(CHAT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          ...(runtimeConfig.supabasePublishableKey
+            ? { Authorization: `Bearer ${runtimeConfig.supabasePublishableKey}` }
+            : {}),
         },
         body: JSON.stringify({ messages: allMessages, context }),
       });
 
-      if (!resp.ok || !resp.body) {
+      if (!resp.ok) {
+        let errorMessage = 'Failed to get AI response.';
+
+        try {
+          const data = await resp.json();
+          const details = typeof data?.details === 'string' ? data.details : '';
+          const error = typeof data?.error === 'string' ? data.error : '';
+          const combined = `${error} ${details}`.toLowerCase();
+
+          if (combined.includes('invalid_api_key') || combined.includes('incorrect api key')) {
+            errorMessage = 'The local OpenAI API key is invalid or expired. Update OPENAI_API_KEY in .env.';
+          } else if (combined.includes('insufficient_quota') || combined.includes('exceeded your current quota')) {
+            errorMessage = 'The OpenAI API key is valid, but the project has no remaining API quota or billing is not active.';
+          } else if (error) {
+            errorMessage = error;
+          }
+        } catch {
+          // Ignore JSON parse errors and fall back to generic messaging.
+        }
+
         if (resp.status === 429) {
           toast.error('Rate limit reached. Please wait a moment.');
         } else if (resp.status === 402) {
           toast.error('AI credits exhausted. Please add funds.');
         } else {
-          toast.error('Failed to get AI response.');
+          toast.error(errorMessage);
         }
+        upsertAssistant(`I couldn't answer because the live chat backend returned an error.\n\n${errorMessage}`);
         setIsLoading(false);
+        return;
+      }
+
+      if (!resp.body) {
+        toast.error('Failed to get AI response.');
+        upsertAssistant("I couldn't answer because the live chat backend returned an empty response.");
+        setIsLoading(false);
+        return;
+      }
+
+      const contentType = resp.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await resp.json();
+        const answer = typeof data?.answer === 'string' ? data.answer : 'No answer was returned.';
+        upsertAssistant(answer);
         return;
       }
 
@@ -145,7 +243,9 @@ export function CrisisChat({
       }
     } catch (e) {
       console.error('Chat error:', e);
-      toast.error('Connection failed. Please try again.');
+      const fallback = buildLocalAssistantResponse({ prompt: text, incidents, alerts, stats, lastUpdated });
+      upsertAssistant(`I couldn't reach the live chat backend, so here's a local dashboard-based fallback.\n\n${fallback}`);
+      toast.error('Live AI was unavailable, so the assistant answered from local dashboard data instead.');
     } finally {
       setIsLoading(false);
     }

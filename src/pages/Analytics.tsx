@@ -13,7 +13,7 @@ const tooltipStyle = {
 };
 
 export default function Analytics() {
-  const { riskScores, trendData, incidents, alerts, stats, lastUpdated } = useLiveData(30000);
+  const { riskScores, trendData, incidents, alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
 
   const riskBreakdownData = useMemo(() => riskScores.map((r) => ({
     region: r.region.replace(' Lebanon', '').replace('Baalbek-Hermel', 'B-Hermel'),
@@ -39,23 +39,60 @@ export default function Analytics() {
     sentiment: d.sentiment,
   })), [trendData]);
 
-  const predictionData = useMemo(() => trendData.slice(-24).map((d, i) => ({
-    time: format(new Date(d.time), 'HH:mm'),
-    actual: d.riskScore,
-    predicted: i > 12 ? d.riskScore + (Math.random() * 10 - 3) : undefined,
-    upper: i > 12 ? d.riskScore + 15 : undefined,
-    lower: i > 12 ? d.riskScore - 10 : undefined,
-  })), [trendData]);
+  const predictionData = useMemo(() => {
+    const slice = trendData.slice(-24);
+    if (slice.length < 2) return slice.map((d) => ({
+      time: format(new Date(d.time), 'HH:mm'),
+      actual: d.riskScore,
+      predicted: undefined,
+      upper: undefined,
+      lower: undefined,
+    }));
+    const lastActual = slice[slice.length - 1].riskScore;
+    const slope = lastActual - slice[slice.length - 2].riskScore;
+    return slice.map((d, i) => {
+      const stepsAhead = i - 12;
+      const isProjected = i > 12;
+      const projected = isProjected ? Math.min(100, Math.max(0, lastActual + slope * stepsAhead)) : undefined;
+      return {
+        time: format(new Date(d.time), 'HH:mm'),
+        actual: d.riskScore,
+        predicted: isProjected ? Math.round(projected! * 10) / 10 : undefined,
+        upper: isProjected ? Math.min(100, Math.round((projected! + 8) * 10) / 10) : undefined,
+        lower: isProjected ? Math.max(0, Math.round((projected! - 8) * 10) / 10) : undefined,
+      };
+    });
+  }, [trendData]);
 
-  const anomalies = [
-    { id: 1, timestamp: '2026-03-30 08:15', region: 'Beirut', type: 'Volume Spike', score: -0.82, details: 'Incident volume 3.2x above baseline' },
-    { id: 2, timestamp: '2026-03-30 06:42', region: 'North Lebanon', type: 'Sentiment Shift', score: -0.71, details: 'Rapid negative sentiment acceleration' },
-    { id: 3, timestamp: '2026-03-29 22:10', region: 'Mount Lebanon', type: 'Behavior Anomaly', score: -0.65, details: 'Coordinated posting pattern detected' },
-    { id: 4, timestamp: '2026-03-29 18:33', region: 'Bekaa', type: 'Keyword Surge', score: -0.58, details: 'Threat keyword frequency 2.8x above normal' },
-  ];
+  const anomalies = useMemo(() => {
+    if (!incidents || incidents.length === 0) return [];
+    const regionScores = new Map<string, number[]>();
+    for (const inc of incidents) {
+      const scores = regionScores.get(inc.region) ?? [];
+      scores.push(inc.riskScore);
+      regionScores.set(inc.region, scores);
+    }
+    const regionAvg = new Map<string, number>();
+    for (const [region, scores] of regionScores.entries()) {
+      regionAvg.set(region, scores.reduce((a, b) => a + b, 0) / scores.length);
+    }
+    const ANOMALY_THRESHOLD = 15;
+    return incidents
+      .filter((inc) => inc.riskScore - (regionAvg.get(inc.region) ?? 0) >= ANOMALY_THRESHOLD)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10)
+      .map((inc, i) => ({
+        id: i + 1,
+        timestamp: format(new Date(inc.createdAt), 'yyyy-MM-dd HH:mm'),
+        region: inc.region,
+        type: inc.category === 'cyber' ? 'Keyword Surge' : inc.severity === 'critical' ? 'Volume Spike' : 'Behavior Anomaly',
+        score: Math.round((inc.riskScore / -100) * 100) / 100,
+        details: `${inc.title} — Risk score ${inc.riskScore} vs. regional avg ${Math.round(regionAvg.get(inc.region) ?? 0)}`,
+      }));
+  }, [incidents]);
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
       <div className="space-y-6">
         <h1 className="text-xl font-bold text-foreground">Analytics & Intelligence</h1>
 
@@ -136,7 +173,11 @@ export default function Analytics() {
                 </tr>
               </thead>
               <tbody>
-                {anomalies.map((a) => (
+                {anomalies.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-6 px-3 text-center text-xs text-muted-foreground">No anomalies detected in current data.</td>
+                  </tr>
+                ) : anomalies.map((a) => (
                   <tr key={a.id} className="border-b border-border/30 hover:bg-accent/30 transition-colors">
                     <td className="py-2.5 px-3 font-mono-data text-xs text-muted-foreground">{a.timestamp}</td>
                     <td className="py-2.5 px-3 text-xs text-foreground">{a.region}</td>

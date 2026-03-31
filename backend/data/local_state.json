@@ -1,0 +1,388 @@
+{
+  "users": [
+    {
+      "id": "6b869563-862f-48d2-b9f6-1b2b8b3c8b9c",
+      "email": "admin@crisisshield.dev",
+      "hashed_password": "$2b$12$9VHlzdKlOilzIzcuhf9TielshxmEErbo6L2dspITdcSHOqQk0iZf.",
+      "full_name": "CrisisShield Admin",
+      "role": "admin",
+      "organization": "CrisisShield",
+      "is_active": true,
+      "created_at": "2026-03-30T13:57:42.217778Z",
+      "updated_at": "2026-03-30T13:57:42.217778Z"
+    }
+  ],
+  "incidents": [
+    {
+      "id": "incident-1",
+      "source": "news",
+      "source_id": "seed-1",
+      "title": "Crowd buildup near Martyrs' Square",
+      "description": "Growing crowd reported near downtown Beirut.",
+      "raw_text": "Growing crowd reported near downtown Beirut.",
+      "category": "protest",
+      "severity": "high",
+      "location": {
+        "lat": 33.8938,
+        "lng": 35.5018
+      },
+      "location_name": "Martyrs' Square",
+      "region": "Beirut",
+      "country": "Lebanon",
+      "sentiment_score": -0.72,
+      "risk_score": 78.0,
+      "entities": [
+        "Martyrs' Square",
+        "Beirut"
+      ],
+      "keywords": [
+        "crowd",
+        "protest"
+      ],
+      "language": "en",
+      "is_verified": false,
+      "status": "analyzed",
+      "metadata": {},
+      "source_info": {
+        "name": "LBCI",
+        "type": "tv",
+        "credibility": "verified",
+        "credibility_score": 88.0,
+        "logo_initials": "LB",
+        "url": "https://www.lbci.com",
+        "verified_by": []
+      },
+      "source_url": "https://www.lbci.com",
+      "created_at": "2026-03-30T13:48:42.226940Z",
+      "updated_at": "2026-03-30T13:48:42.226940Z"
+    },
+    {
+      "id": "incident-2",
+      "source": "news",
+      "source_id": "seed-2",
+      "title": "Power outage in Tripoli industrial zone",
+      "description": "Large outage affecting factories and nearby services.",
+      "raw_text": "Large outage affecting factories and nearby services.",
+      "category": "infrastructure",
+      "severity": "critical",
+      "location": {
+        "lat": 34.4367,
+        "lng": 35.8497
+      },
+      "location_name": "Tripoli Industrial Zone",
+      "region": "North Lebanon",
+      "country": "Lebanon",
+      "sentiment_score": -0.88,
+      "risk_score": 89.0,
+      "entities": [
+        "Tripoli"
+      ],
+      "keywords": [
+        "power",
+        "outage",
+        "grid"
+      ],
+      "language": "en",
+      "is_verified": false,
+      "status": "escalated",
+      "metadata": {},
+      "source_info": {
+        "name": "NNA",
+        "type": "news_agency",
+        "credibility": "verified",
+        "credibility_score": 92.0,
+        "logo_initials": "NN",
+        "url": "https://nna-leb.gov.lb",
+        "verified_by": []
+      },
+      "source_url": "https://nna-leb.gov.lb",
+      "created_at": "2026-03-30T13:39:42.226940Z",
+      "updated_at": "2026-03-30T13:39:42.226940Z"
+    },
+    {
+      "id": "incident-3",
+      "source": "news",
+      "source_id": "seed-3",
+      "title": "Flash flooding risk in Bekaa",
+      "description": "Heavy rainfall is creating flood conditions in low-lying farms.",
+      "raw_text": "Heavy rainfall is creating flood conditions in low-lying farms.",
+      "category": "natural_disaster",
+      "severity": "high",
+      "location": {
+        "lat": 33.8463,
+        "lng": 35.9019
+      },
+      "location_name": "Bekaa Valley",
+      "region": "Bekaa",
+      "country": "Lebanon",
+      "sentiment_score": -0.64,
+      "risk_score": 73.0,
+      "entities": [
+        "Bekaa Valley"
+      ],
+      "keywords": [
+        "flood",
+        "rain"
+      ],
+      "language": "en",
+      "is_verified": false,
+      "status": "analyzed",
+      "metadata": {},
+      "source_info": {
+        "name": "L'Orient Today",
+        "type": "newspaper",
+        "credibility": "verified",
+        "credibility_score": 90.0,
+        "logo_initials": "LO",
+        "url": "https://today.lorientlejour.com",
+        "verified_by": []
+      },
+      "source_url": "https://today.lorientlejour.com",
+      "created_at": "2026-03-30T13:30:42.226940Z",
+      "updated_at": "2026-03-30T13:30:42.226940Z"
+    },
+    {
+      "id": "incident-4",
+      "source": "news",
+      "source_id": "seed-4",
+      "title": "Suspicious package investigated at Jounieh port",
+      "description": "Authorities are investigating a package near port operations.",
+      "raw_text": "Authorities are investigating a package near port operations.",
+      "category": "terrorism",
+      "severity": "critical",
+      "location": {
+        "lat": 33.81,
+        "lng": 35.59
+      },
+      "location_name": "Jounieh Port",
+      "region": "Mount Lebanon",
+      "country": "Lebanon",
+      "sentiment_score": -0.91,
+      "risk_score": 85.0,
+      "entities": [
+        "Jounieh",
+        "port"
+      ],
+      "keywords": [
+        "package",
+        "security"
+      ],
+      "language": "en",
+      "is_verified": false,
+      "status": "escalated",
+      "metadata": {},
+      "source_info": {
+        "name": "Lebanese Armed Forces",
+        "type": "government",
+        "credibility": "verified",
+        "credibility_score": 95.0,
+        "logo_initials": "LA",
+        "url": null,
+        "verified_by": []
+      },
+      "source_url": null,
+      "created_at": "2026-03-30T13:21:42.226940Z",
+      "updated_at": "2026-03-30T13:21:42.226940Z"
+    },
+    {
+      "id": "incident-5",
+      "source": "manual",
+      "source_id": "seed-5",
+      "title": "Respiratory illness cluster in Sidon clinic",
+      "description": "Local clinic has reported a rapid increase in respiratory cases.",
+      "raw_text": "Local clinic has reported a rapid increase in respiratory cases.",
+      "category": "health",
+      "severity": "medium",
+      "location": {
+        "lat": 33.2721,
+        "lng": 35.2033
+      },
+      "location_name": "Sidon",
+      "region": "South Lebanon",
+      "country": "Lebanon",
+      "sentiment_score": -0.42,
+      "risk_score": 56.0,
+      "entities": [
+        "Sidon"
+      ],
+      "keywords": [
+        "clinic",
+        "health"
+      ],
+      "language": "en",
+      "is_verified": false,
+      "status": "analyzed",
+      "metadata": {},
+      "source_info": {
+        "name": "Manual Report",
+        "type": "government",
+        "credibility": "high",
+        "credibility_score": 75.0,
+        "logo_initials": "MR",
+        "url": null,
+        "verified_by": []
+      },
+      "source_url": null,
+      "created_at": "2026-03-30T13:12:42.226940Z",
+      "updated_at": "2026-03-30T13:12:42.226940Z"
+    }
+  ],
+  "risk_scores": [
+    {
+      "id": "risk-beirut",
+      "region": "Beirut",
+      "overall_score": 78.0,
+      "sentiment_component": 82.0,
+      "volume_component": 75.0,
+      "keyword_component": 80.0,
+      "behavior_component": 63.0,
+      "geospatial_component": 70.0,
+      "prediction_horizon": "current",
+      "confidence": 0.88,
+      "model_version": "local-dev-v1",
+      "calculated_at": "2026-03-30T13:57:42.226940Z"
+    },
+    {
+      "id": "risk-north-lebanon",
+      "region": "North Lebanon",
+      "overall_score": 72.0,
+      "sentiment_component": 75.0,
+      "volume_component": 68.0,
+      "keyword_component": 77.0,
+      "behavior_component": 58.0,
+      "geospatial_component": 61.0,
+      "prediction_horizon": "current",
+      "confidence": 0.82,
+      "model_version": "local-dev-v1",
+      "calculated_at": "2026-03-30T13:57:42.226940Z"
+    },
+    {
+      "id": "risk-south-lebanon",
+      "region": "South Lebanon",
+      "overall_score": 54.0,
+      "sentiment_component": 49.0,
+      "volume_component": 44.0,
+      "keyword_component": 59.0,
+      "behavior_component": 42.0,
+      "geospatial_component": 48.0,
+      "prediction_horizon": "current",
+      "confidence": 0.76,
+      "model_version": "local-dev-v1",
+      "calculated_at": "2026-03-30T13:57:42.226940Z"
+    },
+    {
+      "id": "risk-mount-lebanon",
+      "region": "Mount Lebanon",
+      "overall_score": 66.0,
+      "sentiment_component": 64.0,
+      "volume_component": 58.0,
+      "keyword_component": 69.0,
+      "behavior_component": 52.0,
+      "geospatial_component": 60.0,
+      "prediction_horizon": "current",
+      "confidence": 0.8,
+      "model_version": "local-dev-v1",
+      "calculated_at": "2026-03-30T13:57:42.226940Z"
+    },
+    {
+      "id": "risk-bekaa",
+      "region": "Bekaa",
+      "overall_score": 59.0,
+      "sentiment_component": 56.0,
+      "volume_component": 61.0,
+      "keyword_component": 57.0,
+      "behavior_component": 43.0,
+      "geospatial_component": 50.0,
+      "prediction_horizon": "current",
+      "confidence": 0.79,
+      "model_version": "local-dev-v1",
+      "calculated_at": "2026-03-30T13:57:42.226940Z"
+    },
+    {
+      "id": "risk-nabatieh",
+      "region": "Nabatieh",
+      "overall_score": 44.0,
+      "sentiment_component": 42.0,
+      "volume_component": 39.0,
+      "keyword_component": 47.0,
+      "behavior_component": 34.0,
+      "geospatial_component": 40.0,
+      "prediction_horizon": "current",
+      "confidence": 0.74,
+      "model_version": "local-dev-v1",
+      "calculated_at": "2026-03-30T13:57:42.226940Z"
+    },
+    {
+      "id": "risk-akkar",
+      "region": "Akkar",
+      "overall_score": 38.0,
+      "sentiment_component": 35.0,
+      "volume_component": 40.0,
+      "keyword_component": 42.0,
+      "behavior_component": 31.0,
+      "geospatial_component": 36.0,
+      "prediction_horizon": "current",
+      "confidence": 0.71,
+      "model_version": "local-dev-v1",
+      "calculated_at": "2026-03-30T13:57:42.226940Z"
+    },
+    {
+      "id": "risk-baalbek-hermel",
+      "region": "Baalbek-Hermel",
+      "overall_score": 47.0,
+      "sentiment_component": 45.0,
+      "volume_component": 43.0,
+      "keyword_component": 49.0,
+      "behavior_component": 35.0,
+      "geospatial_component": 39.0,
+      "prediction_horizon": "current",
+      "confidence": 0.73,
+      "model_version": "local-dev-v1",
+      "calculated_at": "2026-03-30T13:57:42.226940Z"
+    }
+  ],
+  "alerts": [
+    {
+      "id": "alert-cyber-beirut",
+      "risk_score_id": "risk-beirut",
+      "incident_id": "incident-1",
+      "alert_type": "prediction",
+      "severity": "critical",
+      "title": "Escalation predicted in Beirut",
+      "message": "Risk velocity and crowd indicators suggest escalation over the next 24 hours.",
+      "recommendation": "Increase monitoring near Martyrs' Square, coordinate crowd-management units, and issue a public traffic advisory.",
+      "region": "Beirut",
+      "is_acknowledged": false,
+      "acknowledged_by": null,
+      "acknowledged_at": null,
+      "notification_channels": [
+        "dashboard"
+      ],
+      "linked_incidents": [
+        "incident-1"
+      ],
+      "created_at": "2026-03-30T13:39:42.226940Z"
+    },
+    {
+      "id": "alert-tripoli-grid",
+      "risk_score_id": "risk-north-lebanon",
+      "incident_id": "incident-2",
+      "alert_type": "threshold_breach",
+      "severity": "emergency",
+      "title": "Critical infrastructure disruption in Tripoli",
+      "message": "Power grid disruption has crossed the emergency threshold.",
+      "recommendation": "Dispatch repair crews, notify hospitals, and activate contingency power plans.",
+      "region": "North Lebanon",
+      "is_acknowledged": false,
+      "acknowledged_by": null,
+      "acknowledged_at": null,
+      "notification_channels": [
+        "dashboard"
+      ],
+      "linked_incidents": [
+        "incident-2"
+      ],
+      "created_at": "2026-03-30T13:48:42.226940Z"
+    }
+  ]
+}

@@ -10,10 +10,10 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 export default function Dashboard() {
-  const { incidents, stats, alerts, riskScores, trendData, lastUpdated, updateCount, refresh } = useLiveData(30000);
+  const { incidents, stats, alerts, riskScores, trendData, lastUpdated, updateCount, refresh, connectionStatus } = useLiveData(30000);
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
       <div className="space-y-6">
         {/* Top bar with actions */}
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -30,7 +30,7 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { refresh(); toast.success('Data refreshed'); }}
+              onClick={() => { void refresh(true).then(() => toast.success('Data refreshed')); }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />

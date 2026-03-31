@@ -10,17 +10,19 @@ import {
   Shield,
   ChevronLeft,
   ChevronRight,
+  Radio,
 } from 'lucide-react';
 
 const navItems = [
   { title: 'Dashboard', url: '/', icon: LayoutDashboard },
   { title: 'Incident Map', url: '/map', icon: Map },
   { title: 'Analytics', url: '/analytics', icon: BarChart3 },
+  { title: 'Official Feeds', url: '/official-feeds', icon: Radio },
   { title: 'Alerts', url: '/alerts', icon: Bell },
   { title: 'Settings', url: '/settings', icon: Settings },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ unacknowledgedCount = 0 }: { unacknowledgedCount?: number }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
 
@@ -61,9 +63,9 @@ export function AppSidebar() {
             >
               <item.icon className="w-5 h-5 shrink-0" />
               {!collapsed && <span>{item.title}</span>}
-              {!collapsed && item.url === '/alerts' && (
+              {!collapsed && item.url === '/alerts' && unacknowledgedCount > 0 && (
                 <span className="ml-auto flex items-center justify-center w-5 h-5 rounded-full bg-critical text-critical-foreground text-[10px] font-bold">
-                  5
+                  {unacknowledgedCount}
                 </span>
               )}
             </NavLink>

@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { mockIncidents, mockStats, mockRiskScores, mockAlerts, mockTrendData, allSources } from '@/data/mockData';
+import { mockIncidents, mockStats, mockRiskScores, mockAlerts, mockTrendData } from '@/data/mockData';
 import type { Incident, DashboardStats, RiskScore, Alert, TrendDataPoint, SourceInfo, CredibilityLevel } from '@/types/crisis';
+import { useBackendWebSocket, type BackendConnectionStatus, type BackendWebSocketMessage } from '@/hooks/useBackendWebSocket';
+import { runtimeConfig } from '@/lib/runtimeConfig';
+import { acknowledgeBackendAlert, fetchBackendDashboardSnapshot } from '@/services/backendApi';
 import { toast } from 'sonner';
 
-const NEWS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fetch-news`;
+const NEWS_URL = runtimeConfig.newsUrl;
 
 const SEEN_SOURCE_URLS_KEY = "crisisshield.seenSourceUrls.v1";
 const SEEN_TITLES_KEY = "crisisshield.seenTitles.v1";
@@ -185,22 +188,59 @@ export function useLiveData(refreshInterval = 30000) {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [updateCount, setUpdateCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const prevAvgRiskRef = useRef<number | null>(null);
+  const hasShownLocalModeToastRef = useRef(false);
+  const hasShownLiveFeedToastRef = useRef(false);
   const lastFetchRef = useRef<number>(0);
+  const backendSyncTimerRef = useRef<number | null>(null);
   const seenSourceUrlsRef = useRef<Set<string>>(loadSeenSourceUrls());
   const seenTitlesRef = useRef<string[]>(loadSeenTitles());
 
-  const fetchLiveNews = useCallback(async () => {
-    // Throttle: don't fetch more often than every 25 seconds
-    if (Date.now() - lastFetchRef.current < 25000) return;
-    lastFetchRef.current = Date.now();
+  const applySnapshot = useCallback((snapshot: {
+    incidents: Incident[];
+    stats: DashboardStats;
+    riskScores: RiskScore[];
+    alerts: Alert[];
+    trendData: TrendDataPoint[];
+  }) => {
+    const previousIds = new Set(incidentsRef.current.map((incident) => incident.id));
+    const freshIds = snapshot.incidents.filter((incident) => !previousIds.has(incident.id)).length;
 
+    incidentsRef.current = snapshot.incidents;
+    setIncidents(snapshot.incidents);
+    setStats(snapshot.stats);
+    setRiskScores(snapshot.riskScores);
+    setAlerts(snapshot.alerts);
+    setTrendData(snapshot.trendData);
+    setLastUpdated(new Date());
+    setUpdateCount((count) => count + Math.max(freshIds, 1));
+  }, []);
+
+  const fetchBackendData = useCallback(async () => {
+    const snapshot = await fetchBackendDashboardSnapshot();
+    applySnapshot(snapshot);
+  }, [applySnapshot]);
+
+  const scheduleBackendSync = useCallback((delayMs = 250) => {
+    if (backendSyncTimerRef.current) {
+      window.clearTimeout(backendSyncTimerRef.current);
+    }
+    backendSyncTimerRef.current = window.setTimeout(() => {
+      void fetchBackendData().catch((error) => {
+        console.error('Backend websocket sync failed:', error);
+      });
+    }, delayMs);
+  }, [fetchBackendData]);
+
+  const fetchSupabaseNews = useCallback(async () => {
+    // Throttle: don't fetch more often than every 25 seconds
     setIsLoading(true);
     try {
       const resp = await fetch(NEWS_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          Authorization: `Bearer ${runtimeConfig.supabasePublishableKey}`,
         },
         body: JSON.stringify({
           // Helps backend avoid duplicates when possible; client-side dedupe still applies.
@@ -277,9 +317,10 @@ export function useLiveData(refreshInterval = 30000) {
           totalIncidents24h: baseIncidents.length,
           activeAlerts: critCount,
           avgRiskScore: avgRisk,
-          riskTrend: Math.round((Math.random() * 10 - 3) * 10) / 10,
+          riskTrend: prevAvgRiskRef.current !== null ? Math.round((avgRisk - prevAvgRiskRef.current) * 10) / 10 : 0,
           highestRiskRegion: topRiskIncident?.region || prev.highestRiskRegion,
         }));
+        prevAvgRiskRef.current = avgRisk;
 
         // Build alerts from critical/high severity incidents
         const criticalIncidents = [...baseIncidents]
@@ -333,6 +374,87 @@ export function useLiveData(refreshInterval = 30000) {
     }
   }, []);
 
+  const refresh = useCallback(async (force = false) => {
+    if (!force && Date.now() - lastFetchRef.current < 25000) return;
+    lastFetchRef.current = Date.now();
+
+    if (!runtimeConfig.hasBackendApi && !runtimeConfig.hasSupabaseConfig) {
+      setLastUpdated(new Date());
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      if (runtimeConfig.hasBackendApi) {
+        await fetchBackendData();
+        return;
+      }
+
+      if (runtimeConfig.hasSupabaseConfig) {
+        await fetchSupabaseNews();
+      }
+    } catch (error) {
+      console.error('Live data refresh failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Unable to refresh live data.');
+    } finally {
+      setIsLoading(false);
+      setLastUpdated(new Date());
+    }
+  }, [fetchBackendData, fetchSupabaseNews]);
+
+  const acknowledgeAlert = useCallback(async (alertId: string) => {
+    if (runtimeConfig.hasBackendApi) {
+      const updated = await acknowledgeBackendAlert(alertId);
+      setAlerts((current) => current.map((alert) => (alert.id === alertId ? updated : alert)));
+      setStats((current) => ({
+        ...current,
+        activeAlerts: Math.max(0, current.activeAlerts - 1),
+      }));
+      return updated;
+    }
+
+    setAlerts((current) => current.map((alert) => (
+      alert.id === alertId ? { ...alert, isAcknowledged: true } : alert
+    )));
+    return null;
+  }, []);
+
+  const acknowledgeAllAlerts = useCallback(async () => {
+    const pendingIds = alerts.filter((alert) => !alert.isAcknowledged).map((alert) => alert.id);
+    if (pendingIds.length === 0) return;
+
+    if (runtimeConfig.hasBackendApi) {
+      await Promise.all(pendingIds.map((alertId) => acknowledgeBackendAlert(alertId)));
+      setAlerts((current) => current.map((alert) => ({ ...alert, isAcknowledged: true })));
+      setStats((current) => ({ ...current, activeAlerts: 0 }));
+      return;
+    }
+
+    setAlerts((current) => current.map((alert) => ({ ...alert, isAcknowledged: true })));
+  }, [alerts]);
+
+  const handleBackendMessage = useCallback((message: BackendWebSocketMessage) => {
+    if (message.type === 'heartbeat') {
+      setLastUpdated(new Date());
+      return;
+    }
+
+    if (message.type === 'snapshot') {
+      scheduleBackendSync(0);
+      return;
+    }
+
+    if (message.type === 'incident' || message.type === 'risk_update' || message.type === 'alert') {
+      scheduleBackendSync(150);
+    }
+  }, [scheduleBackendSync]);
+
+  const connectionStatus: BackendConnectionStatus = useBackendWebSocket({
+    enabled: runtimeConfig.hasBackendApi && Boolean(runtimeConfig.backendWsUrl),
+    url: runtimeConfig.backendWsUrl,
+    onMessage: handleBackendMessage,
+  });
+
   // Refresh trend data locally between fetches
   const refreshTrend = useCallback(() => {
     setTrendData(prev => {
@@ -349,18 +471,57 @@ export function useLiveData(refreshInterval = 30000) {
 
   // Initial fetch
   useEffect(() => {
-    fetchLiveNews();
-  }, [fetchLiveNews]);
+    if (runtimeConfig.hasBackendApi && !hasShownLocalModeToastRef.current) {
+      toast.success('Connected to the local CrisisShield backend.');
+      hasShownLocalModeToastRef.current = true;
+    } else if (!runtimeConfig.hasBackendApi && !runtimeConfig.hasSupabaseConfig && !hasShownLocalModeToastRef.current) {
+      toast.info('Running in local demo mode with mock data. Start the backend or add Supabase env vars to enable live updates.');
+      hasShownLocalModeToastRef.current = true;
+    }
+    void refresh(true);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (connectionStatus === 'connected' && !hasShownLiveFeedToastRef.current && runtimeConfig.hasBackendApi) {
+      toast.success('Live feed connected.');
+      hasShownLiveFeedToastRef.current = true;
+    }
+  }, [connectionStatus]);
 
   // Periodic refresh
   useEffect(() => {
-    const newsTimer = setInterval(fetchLiveNews, refreshInterval);
-    const trendTimer = setInterval(refreshTrend, 15000);
+    const newsTimer = setInterval(() => {
+      void refresh();
+    }, refreshInterval);
+    const trendTimer = runtimeConfig.hasBackendApi
+      ? null
+      : setInterval(refreshTrend, 15000);
     return () => {
       clearInterval(newsTimer);
-      clearInterval(trendTimer);
+      if (trendTimer) clearInterval(trendTimer);
     };
-  }, [fetchLiveNews, refreshTrend, refreshInterval]);
+  }, [refresh, refreshInterval, refreshTrend]);
 
-  return { incidents, stats, riskScores, alerts, trendData, lastUpdated, updateCount, isLoading, refresh: fetchLiveNews };
+  useEffect(() => {
+    return () => {
+      if (backendSyncTimerRef.current) {
+        window.clearTimeout(backendSyncTimerRef.current);
+      }
+    };
+  }, []);
+
+  return {
+    incidents,
+    stats,
+    riskScores,
+    alerts,
+    trendData,
+    lastUpdated,
+    updateCount,
+    isLoading,
+    refresh,
+    acknowledgeAlert,
+    acknowledgeAllAlerts,
+    connectionStatus,
+  };
 }

@@ -1,0 +1,10 @@
+[project]
+name = "crisisshield-backend"
+version = "1.0.0"
+description = "Development backend for CrisisShield"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["app"]
+testpaths = ["app/tests"]
+addopts = "-p no:cacheprovider"

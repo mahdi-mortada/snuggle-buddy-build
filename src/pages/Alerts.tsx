@@ -1,6 +1,6 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useLiveData } from '@/hooks/useLiveData';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, AlertOctagon, Info, Siren, Share2, Download, Bell, BellOff, ExternalLink } from 'lucide-react';
 import type { AlertSeverity } from '@/types/crisis';
@@ -17,48 +17,29 @@ const severityConfig: Record<AlertSeverity, { icon: typeof AlertTriangle; color:
 };
 
 export default function Alerts() {
-  const { alerts, incidents, stats, lastUpdated } = useLiveData(30000);
+  const { alerts, incidents, stats, lastUpdated, acknowledgeAlert, acknowledgeAllAlerts, connectionStatus } = useLiveData(30000);
   const [activeTab, setActiveTab] = useState<typeof tabs[number]>('All');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [acknowledged, setAcknowledged] = useState<Set<string>>(new Set(alerts.filter(a => a.isAcknowledged).map(a => a.id)));
-
-  // Keep acknowledged IDs aligned with the latest live alerts list
-  useEffect(() => {
-    setAcknowledged((prev) => {
-      const activeIds = new Set(alerts.map((a) => a.id));
-      const next = new Set<string>();
-
-      prev.forEach((id) => {
-        if (activeIds.has(id)) next.add(id);
-      });
-
-      alerts.forEach((a) => {
-        if (a.isAcknowledged) next.add(a.id);
-      });
-
-      return next;
-    });
-  }, [alerts]);
 
   const filtered = alerts.filter((a) => {
     if (activeTab === 'All') return true;
-    if (activeTab === 'Acknowledged') return acknowledged.has(a.id);
+    if (activeTab === 'Acknowledged') return a.isAcknowledged;
     return a.severity === activeTab.toLowerCase();
   });
 
-  const handleAcknowledge = (id: string) => {
-    setAcknowledged(prev => new Set([...prev, id]));
+  const handleAcknowledge = async (id: string) => {
+    await acknowledgeAlert(id);
     toast.success('Alert acknowledged');
   };
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
       <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-bold text-foreground">Alerts</h1>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-mono-data">{alerts.length - acknowledged.size} unacknowledged</span>
-            <button onClick={() => { setAcknowledged(new Set(alerts.map(a => a.id))); toast.success('All alerts acknowledged'); }}
+            <span className="text-xs text-muted-foreground font-mono-data">{alerts.filter((alert) => !alert.isAcknowledged).length} unacknowledged</span>
+            <button onClick={() => { void acknowledgeAllAlerts().then(() => toast.success('All alerts acknowledged')); }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-success/10 text-success border border-success/20 hover:bg-success/20 transition-colors">
               <CheckCircle2 className="w-3.5 h-3.5" /> Acknowledge All
             </button>
@@ -86,7 +67,7 @@ export default function Alerts() {
             const config = severityConfig[alert.severity];
             const Icon = config.icon;
             const isExpanded = expandedId === alert.id;
-            const isAck = acknowledged.has(alert.id);
+            const isAck = alert.isAcknowledged;
             // Find linked incident for source info
             const linkedIncident = incidents.find(inc => alert.linkedIncidents.includes(inc.id));
             const sourceUrl = (alert as any).sourceUrl || linkedIncident?.sourceUrl;
@@ -178,7 +159,7 @@ export default function Alerts() {
                         </a>
                       )}
                       {!isAck && (
-                        <button onClick={() => handleAcknowledge(alert.id)}
+                        <button onClick={() => { void handleAcknowledge(alert.id); }}
                           className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors">
                           <CheckCircle2 className="w-4 h-4" /> Acknowledge
                         </button>
