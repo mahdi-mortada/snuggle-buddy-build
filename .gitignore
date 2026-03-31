@@ -13,6 +13,13 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.venv/
+backend/.venv/
+__pycache__/
+backend/**/__pycache__/
+.pytest_cache/
+backend/.pytest_cache/
+*.pyc
 .tools/
 node-portable.zip
 *.local
