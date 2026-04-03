@@ -2,6 +2,53 @@
   "users": [],
   "incidents": [
     {
+      "id": "live-4425d398-8886-5f5e-b1aa-4466f9b7f1ff",
+      "source": "news",
+      "source_id": "https://news.google.com/rss/articles/CBMi_AFBVV95cUxPc0h3cDRGWEpZcnVHVlpyS0dSYzRoY2pKWU10VTJIT1ZNVHF4OUJ2Y2o4ZXdLSVR1MmE4WEFYMUEzVTJMNVBCaEg3U0V3TDVtYUhGWFk0bVktRjVTMGtwNWNOTGdWbTcwSFphV1lmeGJDRW1nTmZEam4zZTFhZ0VJY0Y0RUVMdml3T1ZzSEVzbEFmQmdPRld3ZzFfN0Q3cUJqWTJvRExxcXZrV2NtVk11dUd2dlVBOEVtMHZ5dk9Ca053Ml95YThsLVplSXdoUlhOMW40eWVTNDd4dG1ua2JKN09EajdULVJjbHcyR25ycFFqTi1BVFo5SGNuWXk?oc=5",
+      "source_url": "https://news.google.com/rss/articles/CBMi_AFBVV95cUxPc0h3cDRGWEpZcnVHVlpyS0dSYzRoY2pKWU10VTJIT1ZNVHF4OUJ2Y2o4ZXdLSVR1MmE4WEFYMUEzVTJMNVBCaEg3U0V3TDVtYUhGWFk0bVktRjVTMGtwNWNOTGdWbTcwSFphV1lmeGJDRW1nTmZEam4zZTFhZ0VJY0Y0RUVMdml3T1ZzSEVzbEFmQmdPRld3ZzFfN0Q3cUJqWTJvRExxcXZrV2NtVk11dUd2dlVBOEVtMHZ5dk9Ca053Ml95YThsLVplSXdoUlhOMW40eWVTNDd4dG1ua2JKN09EajdULVJjbHcyR25ycFFqTi1BVFo5SGNuWXk?oc=5",
+      "title": "Israeli military planning 'buffer zone' in southern Lebanon up to 3 kilometers from border, according to Israeli media",
+      "description": "Israeli military planning 'buffer zone' in southern Lebanon up to 3 kilometers from border, according to Israeli media L'Orient Today",
+      "raw_text": "Israeli military planning 'buffer zone' in southern Lebanon up to 3 kilometers from border, according to Israeli media. Israeli military planning 'buffer zone' in southern Lebanon up to 3 kilometers from border, according to Israeli media L'Orient Today",
+      "processed_text": null,
+      "category": "other",
+      "severity": "medium",
+      "location": {
+        "lat": 33.8938,
+        "lng": 35.5018
+      },
+      "location_name": "Lebanon",
+      "region": "Beirut",
+      "country": "Lebanon",
+      "sentiment_score": -0.25,
+      "risk_score": 58.0,
+      "entities": [
+        "Lebanon",
+        "Beirut"
+      ],
+      "keywords": [],
+      "language": "en",
+      "is_verified": false,
+      "status": "new",
+      "processing_status": "pending",
+      "verification_status": "unverified",
+      "confidence_score": null,
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "analyst_notes": null,
+      "metadata": {},
+      "source_info": {
+        "name": "L'Orient Today",
+        "type": "newspaper",
+        "credibility": "verified",
+        "credibility_score": 90.0,
+        "logo_initials": "LO",
+        "url": "https://news.google.com/rss/articles/CBMi_AFBVV95cUxPc0h3cDRGWEpZcnVHVlpyS0dSYzRoY2pKWU10VTJIT1ZNVHF4OUJ2Y2o4ZXdLSVR1MmE4WEFYMUEzVTJMNVBCaEg3U0V3TDVtYUhGWFk0bVktRjVTMGtwNWNOTGdWbTcwSFphV1lmeGJDRW1nTmZEam4zZTFhZ0VJY0Y0RUVMdml3T1ZzSEVzbEFmQmdPRld3ZzFfN0Q3cUJqWTJvRExxcXZrV2NtVk11dUd2dlVBOEVtMHZ5dk9Ca053Ml95YThsLVplSXdoUlhOMW40eWVTNDd4dG1ua2JKN09EajdULVJjbHcyR25ycFFqTi1BVFo5SGNuWXk?oc=5",
+        "verified_by": []
+      },
+      "created_at": "2026-04-03T12:57:37Z",
+      "updated_at": "2026-04-03T13:30:41.013878Z"
+    },
+    {
       "id": "live-0b5288ce-9239-5cdd-8638-92e122c3a121",
       "source": "news",
       "source_id": "https://news.google.com/rss/articles/CBMilwFBVV95cUxNcVNKMXVOVEtUMG9tZFdwZUdOOUphTE50aFBZa2pPLTdYVkxHc2pGVGRxOUE2RXYxbGJwcFpsR2g3eXZYeWhZdGFNS1NPeF9fczJyc0RFanpHSHJWTWFwWElqYjF2WnFtUjlwd3JXNDAtSm4wbUNWdHkzYnFTWlF0OGR2Y0R1RTdnOEhwQjNmZGxIQnc1Z1dN?oc=5",
@@ -46,7 +93,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T12:46:36Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
     },
     {
       "id": "live-1dd9b1aa-c502-5bf1-bf7d-4a98e32b3e9e",
@@ -95,7 +142,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T10:27:23Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
     },
     {
       "id": "live-e035adf0-bc0a-5827-91f4-a29b82c0cefb",
@@ -142,7 +189,54 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T10:20:12Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
+    },
+    {
+      "id": "live-69985cf1-bf53-5dee-ab16-d754efb0ad7a",
+      "source": "news",
+      "source_id": "https://news.google.com/rss/articles/CBMipwNBVV95cUxQdERmNHQ2S2x5dzh0M0U5Rl9IQ2E0T05lUDBTX3BzSEpNUkVOTG9QbHRmUTYwT3pqNVJOLWVrSW9PekNOZlRORVR0Z2FWNnVmOTd3MW9iVGVYdXZfOGtKNTFrWTJxR1R2Nk9icndXUExJYlJ2MXBxMlZMREsxZHFOMGNZNWlYT3ZVaEVMVkREblRUOV9HZjA2dzViSmNaY1hnZUU0TEFwbElsR1o2X3pYWlhUREM1aTl4N3JPOVduVU1lREFNS2ZGZGFURkE5UmdZaU5qM056V0dCeG5PeGxGcGpHLXpiTTdvM2xWWWh4clRDLXh0Z2pWeWxQalJiUDROZVhkSU9MRDRFb045NktoekhQcUJQTEtQZ2tCc1FrWTdvbXhrWC1Ob3R4LVNpclVyZVVqdHRjN0FmaWN3UkwyVW9qa0NVZVpudjlnSWRjcXhJb3ZYWmx0YXhJV3RONm1ucFJzN1ZvRXg4ZGVaQWtsS2liblMwcXNmemM4Y0pFUWQ2SkcyVWlvN05CYW5sUXNYNi1xZmc2SkRibUVZVFRJS3BHQ0NCY2s?oc=5",
+      "source_url": "https://news.google.com/rss/articles/CBMipwNBVV95cUxQdERmNHQ2S2x5dzh0M0U5Rl9IQ2E0T05lUDBTX3BzSEpNUkVOTG9QbHRmUTYwT3pqNVJOLWVrSW9PekNOZlRORVR0Z2FWNnVmOTd3MW9iVGVYdXZfOGtKNTFrWTJxR1R2Nk9icndXUExJYlJ2MXBxMlZMREsxZHFOMGNZNWlYT3ZVaEVMVkREblRUOV9HZjA2dzViSmNaY1hnZUU0TEFwbElsR1o2X3pYWlhUREM1aTl4N3JPOVduVU1lREFNS2ZGZGFURkE5UmdZaU5qM056V0dCeG5PeGxGcGpHLXpiTTdvM2xWWWh4clRDLXh0Z2pWeWxQalJiUDROZVhkSU9MRDRFb045NktoekhQcUJQTEtQZ2tCc1FrWTdvbXhrWC1Ob3R4LVNpclVyZVVqdHRjN0FmaWN3UkwyVW9qa0NVZVpudjlnSWRjcXhJb3ZYWmx0YXhJV3RONm1ucFJzN1ZvRXg4ZGVaQWtsS2liblMwcXNmemM4Y0pFUWQ2SkcyVWlvN05CYW5sUXNYNi1xZmc2SkRibUVZVFRJS3BHQ0NCY2s?oc=5",
+      "title": "\u063a\u0627\u0631\u0629 \u0639\u0644\u0649 \u0645\u0646\u0637\u0642\u0629 \u0628\u064a\u0646 \u062d\u0628\u0648\u0634 \u0648\u0639\u0631\u0628\u0635\u0627\u0644\u064a\u0645 \u0648\u062a\u0641\u062c\u064a\u0631 \u0645\u0646\u0627\u0632\u0644 \u0641\u064a",
+      "description": "\u063a\u0627\u0631\u0629 \u0639\u0644\u0649 \u0645\u0646\u0637\u0642\u0629 \u0628\u064a\u0646 \u062d\u0628\u0648\u0634 \u0648\u0639\u0631\u0628\u0635\u0627\u0644\u064a\u0645 \u0648\u062a\u0641\u062c\u064a\u0631 \u0645\u0646\u0627\u0632\u0644 \u0641\u064a nna-leb.gov.lb",
+      "raw_text": "\u063a\u0627\u0631\u0629 \u0639\u0644\u0649 \u0645\u0646\u0637\u0642\u0629 \u0628\u064a\u0646 \u062d\u0628\u0648\u0634 \u0648\u0639\u0631\u0628\u0635\u0627\u0644\u064a\u0645 \u0648\u062a\u0641\u062c\u064a\u0631 \u0645\u0646\u0627\u0632\u0644 \u0641\u064a. \u063a\u0627\u0631\u0629 \u0639\u0644\u0649 \u0645\u0646\u0637\u0642\u0629 \u0628\u064a\u0646 \u062d\u0628\u0648\u0634 \u0648\u0639\u0631\u0628\u0635\u0627\u0644\u064a\u0645 \u0648\u062a\u0641\u062c\u064a\u0631 \u0645\u0646\u0627\u0632\u0644 \u0641\u064a nna-leb.gov.lb",
+      "processed_text": null,
+      "category": "other",
+      "severity": "medium",
+      "location": {
+        "lat": 33.409165,
+        "lng": 35.4812705
+      },
+      "location_name": "Habboush",
+      "region": "South Lebanon",
+      "country": "Lebanon",
+      "sentiment_score": -0.25,
+      "risk_score": 58.0,
+      "entities": [
+        "Habboush",
+        "South Lebanon"
+      ],
+      "keywords": [],
+      "language": "en",
+      "is_verified": false,
+      "status": "new",
+      "processing_status": "pending",
+      "verification_status": "unverified",
+      "confidence_score": null,
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "analyst_notes": null,
+      "metadata": {},
+      "source_info": {
+        "name": "NNA",
+        "type": "news_agency",
+        "credibility": "verified",
+        "credibility_score": 92.0,
+        "logo_initials": "NN",
+        "url": "https://news.google.com/rss/articles/CBMipwNBVV95cUxQdERmNHQ2S2x5dzh0M0U5Rl9IQ2E0T05lUDBTX3BzSEpNUkVOTG9QbHRmUTYwT3pqNVJOLWVrSW9PekNOZlRORVR0Z2FWNnVmOTd3MW9iVGVYdXZfOGtKNTFrWTJxR1R2Nk9icndXUExJYlJ2MXBxMlZMREsxZHFOMGNZNWlYT3ZVaEVMVkREblRUOV9HZjA2dzViSmNaY1hnZUU0TEFwbElsR1o2X3pYWlhUREM1aTl4N3JPOVduVU1lREFNS2ZGZGFURkE5UmdZaU5qM056V0dCeG5PeGxGcGpHLXpiTTdvM2xWWWh4clRDLXh0Z2pWeWxQalJiUDROZVhkSU9MRDRFb045NktoekhQcUJQTEtQZ2tCc1FrWTdvbXhrWC1Ob3R4LVNpclVyZVVqdHRjN0FmaWN3UkwyVW9qa0NVZVpudjlnSWRjcXhJb3ZYWmx0YXhJV3RONm1ucFJzN1ZvRXg4ZGVaQWtsS2liblMwcXNmemM4Y0pFUWQ2SkcyVWlvN05CYW5sUXNYNi1xZmc2SkRibUVZVFRJS3BHQ0NCY2s?oc=5",
+        "verified_by": []
+      },
+      "created_at": "2026-04-03T10:03:48Z",
+      "updated_at": "2026-04-03T13:20:40.279924Z"
     },
     {
       "id": "live-2ccdcbe7-b873-5ea4-9503-72cbd3c9a3bf",
@@ -189,7 +283,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T09:51:39Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
     },
     {
       "id": "live-dea07b26-7079-5810-b995-aa8301197379",
@@ -236,7 +330,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T09:36:15Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
     },
     {
       "id": "live-8aa362e2-7aac-5d51-bd6f-039e7091c913",
@@ -286,7 +380,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T09:32:07Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
     },
     {
       "id": "live-1d496a6b-409b-5d80-9196-c2ab40815b52",
@@ -333,7 +427,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T09:14:18Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
     },
     {
       "id": "live-36be5866-89ce-5218-a8e8-afb7e32f29f9",
@@ -382,7 +476,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T09:08:00Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
     },
     {
       "id": "live-f8a85594-1737-5129-bb23-e6eebbc4cd8c",
@@ -429,7 +523,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T09:07:59Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:30:41.013878Z"
     },
     {
       "id": "live-90051220-1598-584c-a561-7b67d4326f06",
@@ -476,7 +570,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-03T09:07:58Z",
-      "updated_at": "2026-04-03T13:15:41.117483Z"
+      "updated_at": "2026-04-03T13:20:40.279924Z"
     },
     {
       "id": "live-2d0414b2-8c72-5ec5-8fc3-d9850d337979",
@@ -1002,7 +1096,7 @@
   ],
   "risk_scores": [
     {
-      "id": "efb30ed0-97cc-4e82-9b09-ddae98c832dd",
+      "id": "d0ad287d-1236-49e6-b7d0-bd627711f311",
       "region": "Baalbek-Hermel",
       "overall_score": 15.19,
       "sentiment_component": 43.75,
@@ -1013,24 +1107,24 @@
       "prediction_horizon": "current",
       "confidence": 0.524,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-03T13:20:09.824058Z"
+      "calculated_at": "2026-04-03T13:34:10.816482Z"
     },
     {
-      "id": "e793f506-26a9-4495-87b5-f7aebdaa8cf8",
+      "id": "f58329e1-e9d6-497e-8b57-764fa31a4562",
       "region": "Beirut",
-      "overall_score": 54.96,
-      "sentiment_component": 47.27,
+      "overall_score": 54.91,
+      "sentiment_component": 47.07,
       "volume_component": 100.0,
       "keyword_component": 90.0,
       "behavior_component": 0.0,
-      "geospatial_component": 0.93,
+      "geospatial_component": 0.98,
       "prediction_horizon": "current",
-      "confidence": 0.916,
+      "confidence": 0.941,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-03T13:20:09.824058Z"
+      "calculated_at": "2026-04-03T13:34:10.816482Z"
     },
     {
-      "id": "067ee400-57f9-457c-92b5-4eeb21cf1d11",
+      "id": "6eb4dfea-0ae9-4869-8634-37a3ee43d393",
       "region": "Bekaa",
       "overall_score": 15.19,
       "sentiment_component": 43.75,
@@ -1041,32 +1135,32 @@
       "prediction_horizon": "current",
       "confidence": 0.524,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-03T13:20:09.824058Z"
+      "calculated_at": "2026-04-03T13:34:10.816482Z"
     },
     {
-      "id": "2ea2f62d-41b2-40b6-b6ea-fa4fd19fae3f",
+      "id": "89991032-0979-40e9-a902-ce22f7f2d44d",
       "region": "South Lebanon",
-      "overall_score": 28.42,
-      "sentiment_component": 49.52,
-      "volume_component": 16.0,
+      "overall_score": 29.92,
+      "sentiment_component": 47.6,
+      "volume_component": 24.0,
       "keyword_component": 60.0,
       "behavior_component": 0.0,
-      "geospatial_component": 0.28,
+      "geospatial_component": 0.15,
       "prediction_horizon": "current",
-      "confidence": 0.549,
+      "confidence": 0.574,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-03T13:20:09.824058Z"
+      "calculated_at": "2026-04-03T13:34:10.816482Z"
     }
   ],
   "alerts": [
     {
-      "id": "25ebd547-b25a-4b2e-9a3d-0d10e22c0804",
-      "risk_score_id": "e793f506-26a9-4495-87b5-f7aebdaa8cf8",
-      "incident_id": "live-0b5288ce-9239-5cdd-8638-92e122c3a121",
+      "id": "df32885e-74e3-407f-96c7-b65f29cd1c9e",
+      "risk_score_id": "f58329e1-e9d6-497e-8b57-764fa31a4562",
+      "incident_id": "live-4425d398-8886-5f5e-b1aa-4466f9b7f1ff",
       "alert_type": "trend",
       "severity": "info",
       "title": "Beirut: INFO Risk Level",
-      "message": "Risk score in Beirut has reached 55.0/100. Recent: The Lebanese Army's dilemma in the South; Israeli army demolishes houses in Lebanon while Hezbollah claims 49 attacks against Israel; Syrian authorities detain Lebanese fishing boat with 16 fishermen ",
+      "message": "Risk score in Beirut has reached 54.9/100. Recent: Israeli military planning 'buffer zone' in southern Lebanon up to 3 kilometers from border, according to Israeli media; The Lebanese Army's dilemma in the South; Israeli army demolishes houses in Leba",
       "recommendation": "Low-level activity detected in Beirut. Continue standard monitoring protocols.",
       "region": "Beirut",
       "is_acknowledged": false,
@@ -1076,13 +1170,13 @@
         "dashboard"
       ],
       "linked_incidents": [
+        "live-4425d398-8886-5f5e-b1aa-4466f9b7f1ff",
         "live-0b5288ce-9239-5cdd-8638-92e122c3a121",
         "live-1dd9b1aa-c502-5bf1-bf7d-4a98e32b3e9e",
         "live-e035adf0-bc0a-5827-91f4-a29b82c0cefb",
-        "live-2ccdcbe7-b873-5ea4-9503-72cbd3c9a3bf",
-        "live-dea07b26-7079-5810-b995-aa8301197379"
+        "live-2ccdcbe7-b873-5ea4-9503-72cbd3c9a3bf"
       ],
-      "created_at": "2026-04-03T13:20:09.824386Z"
+      "created_at": "2026-04-03T13:34:10.816738Z"
     }
   ]
 }
