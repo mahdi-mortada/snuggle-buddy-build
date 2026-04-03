@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+
+if [[ -z "$current_branch" ]]; then
+  current_branch="$(git branch --show-current 2>/dev/null || true)"
+fi
+
+if [[ "${ALLOW_MAIN_PUSH:-}" == "1" ]]; then
+  exit 0
+fi
+
+if [[ "$current_branch" == "main" ]]; then
+  echo "Push blocked: direct pushes to 'main' are disabled."
+  echo "Create a branch, push it, and open a PR."
+  echo "If this is an emergency and approved, run: ALLOW_MAIN_PUSH=1 git push ..."
+  exit 1
+fi

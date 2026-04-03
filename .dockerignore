@@ -1,0 +1,16 @@
+.git
+.tmp
+.tools
+node_modules
+dist
+coverage
+playwright-report
+test-results
+node-portable.zip
+backend/.venv
+backend/.tmp-py
+backend/pytest-cache-files-*
+backend/__pycache__
+backend/.pytest_cache
+**/__pycache__
+**/*.pyc

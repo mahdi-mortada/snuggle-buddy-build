@@ -1,0 +1,80 @@
+{
+  "title": "CrisisShield System Overview",
+  "uid": "crisisshield-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "API Request Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{job=\"crisisshield-backend\"}[5m])",
+          "legendFormat": "{{method}} {{handler}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "API Response Time (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"crisisshield-backend\"}[5m]))",
+          "legendFormat": "p95 latency"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Active WebSocket Connections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "websocket_active_connections{job=\"crisisshield-backend\"}",
+          "legendFormat": "Connections"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Incidents Processed (24h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "targets": [
+        {
+          "expr": "increase(incidents_processed_total{job=\"crisisshield-backend\"}[24h])",
+          "legendFormat": "Incidents"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "NLP Pipeline Throughput",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(nlp_texts_processed_total{job=\"crisisshield-backend\"}[1m]) * 60",
+          "legendFormat": "texts/min"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Active Alerts by Severity",
+      "type": "piechart",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        {
+          "expr": "alerts_active_total{job=\"crisisshield-backend\"}",
+          "legendFormat": "{{severity}}"
+        }
+      ]
+    }
+  ]
+}
