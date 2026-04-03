@@ -123,10 +123,12 @@ class OfficialFeedService:
         if not settings.official_feeds_enabled:
             return []
 
-        requested_limit = limit or settings.official_feed_limit
+        requested_limit = self._sanitize_limit(limit if limit is not None else settings.official_feed_limit, default=50)
+        window_hours = self._window_hours(settings.live_news_window_hours)
         now = datetime.now(UTC)
         if self._cached_at and now - self._cached_at < self._cache_ttl:
-            return self._cache[:requested_limit]
+            recent_cached = self._filter_recent_posts(self._cache, now=now, window_hours=window_hours)
+            return recent_cached[:requested_limit]
 
         posts: list[OfficialFeedPost] = []
         accounts = self._accounts(settings)
@@ -145,9 +147,49 @@ class OfficialFeedService:
 
         posts.sort(key=lambda item: item.published_at, reverse=True)
         deduped = self._dedupe_posts(posts)
-        self._cache = deduped
+        recent_posts = self._filter_recent_posts(deduped, now=now, window_hours=window_hours)
+        self._cache = recent_posts
         self._cached_at = now
-        return deduped[:requested_limit]
+        return recent_posts[:requested_limit]
+
+    def _window_hours(self, configured_window: int | None) -> int:
+        if not isinstance(configured_window, int):
+            return 24
+        return max(1, configured_window)
+
+    def _sanitize_limit(self, requested_limit: int | None, *, default: int) -> int:
+        if not isinstance(requested_limit, int):
+            return default
+        return max(1, min(100, requested_limit))
+
+    def _filter_recent_posts(
+        self,
+        posts: list[OfficialFeedPost],
+        *,
+        now: datetime,
+        window_hours: int,
+    ) -> list[OfficialFeedPost]:
+        cutoff = now - timedelta(hours=window_hours)
+        recent_posts: list[OfficialFeedPost] = []
+
+        for post in posts:
+            published_at = getattr(post, "published_at", None)
+            if not isinstance(published_at, datetime):
+                continue
+            try:
+                published_at_utc = published_at if published_at.tzinfo is not None else published_at.replace(tzinfo=UTC)
+                published_at_utc = published_at_utc.astimezone(UTC)
+            except (ValueError, TypeError):
+                continue
+            if published_at_utc < cutoff:
+                continue
+            recent_posts.append(post)
+
+        recent_posts.sort(
+            key=lambda item: item.published_at if item.published_at.tzinfo is not None else item.published_at.replace(tzinfo=UTC),
+            reverse=True,
+        )
+        return recent_posts
 
     def _accounts(self, settings) -> list[OfficialFeedAccount]:
         accounts = list(OFFICIAL_FEED_ACCOUNTS)

@@ -428,6 +428,12 @@ async function requestBackend<T>(path: string, init: RequestInit = {}, retry = t
     throw new Error("Backend API is not configured");
   }
 
+  const requestUrl = `${runtimeConfig.backendApiBaseUrl}${path}`;
+  const isLiveIncidentsRequest = path.startsWith("/api/v1/incidents/live");
+  if (isLiveIncidentsRequest) {
+    console.log("[backendApi] live incidents request URL:", requestUrl);
+  }
+
   const token = await loginToBackend();
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
@@ -435,17 +441,33 @@ async function requestBackend<T>(path: string, init: RequestInit = {}, retry = t
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${runtimeConfig.backendApiBaseUrl}${path}`, {
+  const response = await fetch(requestUrl, {
     ...init,
     headers,
   });
+
+  const rawBody = await response.text();
+  let payload: ApiEnvelope<T> | null = null;
+  try {
+    payload = rawBody ? (JSON.parse(rawBody) as ApiEnvelope<T>) : null;
+  } catch {
+    payload = null;
+  }
+
+  if (isLiveIncidentsRequest) {
+    console.log("[backendApi] live incidents response status:", response.status);
+    console.log("[backendApi] live incidents response body:", payload ?? rawBody);
+  }
 
   if (response.status === 401 && retry) {
     storeToken(null);
     return requestBackend<T>(path, init, false);
   }
 
-  const payload = (await response.json()) as ApiEnvelope<T>;
+  if (!payload) {
+    throw new Error(`Backend response was not valid JSON (${response.status})`);
+  }
+
   if (!response.ok || !payload.success) {
     throw new Error(payload.error || `Backend request failed (${response.status})`);
   }
@@ -503,4 +525,13 @@ export async function acknowledgeBackendAlert(alertId: string): Promise<Alert> {
 export async function fetchBackendOfficialFeedPosts(limit = 24): Promise<OfficialFeedPost[]> {
   const posts = await requestBackend<BackendOfficialFeedPost[]>(`/api/v1/official-feeds?limit=${limit}`);
   return posts.map(mapOfficialFeedPost);
+}
+
+export async function fetchBackendLiveIncidents(limit = 25): Promise<Incident[]> {
+  const numericLimit = Number.isFinite(limit) ? Math.trunc(limit) : 25;
+  const safeLimit = Math.min(50, Math.max(1, numericLimit || 25));
+  const incidents = await requestBackend<BackendIncident[]>(`/api/v1/incidents/live?limit=${safeLimit}`);
+  return incidents
+    .map(mapIncident)
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 }

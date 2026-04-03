@@ -2,6 +2,9 @@ import { createServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -41,9 +44,11 @@ const env = {
 };
 
 const PORT = Number(env.LOCAL_API_PORT || 8787);
-const OPENAI_API_KEY = (env.OPENAI_API_KEY || "").trim();
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const OPENAI_MODEL = (env.OPENAI_MODEL || "gpt-4o-mini").trim();
 const OPENAI_SEARCH_MODEL = (env.OPENAI_SEARCH_MODEL || "gpt-4o-mini-search-preview").trim();
+
+console.log("API KEY LOADED:", !!process.env.OPENAI_API_KEY);
 
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {

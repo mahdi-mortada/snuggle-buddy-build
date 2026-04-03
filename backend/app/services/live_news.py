@@ -130,10 +130,12 @@ class LiveNewsService:
         if not settings.live_news_enabled:
             return []
 
-        requested_limit = limit or settings.live_news_limit
+        requested_limit = self._sanitize_limit(limit if limit is not None else settings.live_news_limit, default=50)
+        window_hours = self._window_hours(settings.live_news_window_hours)
         now = datetime.now(UTC)
         if self._cached_at and now - self._cached_at < self._cache_ttl:
-            return self._cache[:requested_limit]
+            recent_cached = self._filter_recent_incidents(self._cache, now=now, window_hours=window_hours)
+            return recent_cached[:requested_limit]
 
         queries = [
             "(site:reuters.com OR site:apnews.com OR site:lbci.com OR site:nna-leb.gov.lb OR site:today.lorientlejour.com OR site:naharnet.com OR site:mtv.com.lb OR site:aljadeed.tv OR site:aljazeera.net OR site:almayadeen.net) Lebanon when:1d",
@@ -157,10 +159,50 @@ class LiveNewsService:
                     continue
                 entries.extend(self._parse_feed(response.text))
 
-        incidents = self._build_incidents(entries, hours_window=settings.live_news_window_hours)
-        self._cache = incidents
+        incidents = self._build_incidents(entries, hours_window=window_hours)
+        recent_incidents = self._filter_recent_incidents(incidents, now=now, window_hours=window_hours)
+        self._cache = recent_incidents
         self._cached_at = now
-        return incidents[:requested_limit]
+        return recent_incidents[:requested_limit]
+
+    def _window_hours(self, configured_window: int | None) -> int:
+        if not isinstance(configured_window, int):
+            return 24
+        return max(1, configured_window)
+
+    def _sanitize_limit(self, requested_limit: int | None, *, default: int) -> int:
+        if not isinstance(requested_limit, int):
+            return default
+        return max(1, min(100, requested_limit))
+
+    def _filter_recent_incidents(
+        self,
+        incidents: list[IncidentRecord],
+        *,
+        now: datetime,
+        window_hours: int,
+    ) -> list[IncidentRecord]:
+        cutoff = now - timedelta(hours=window_hours)
+        recent_incidents: list[IncidentRecord] = []
+
+        for incident in incidents:
+            created_at = getattr(incident, "created_at", None)
+            if not isinstance(created_at, datetime):
+                continue
+            try:
+                created_at_utc = created_at if created_at.tzinfo is not None else created_at.replace(tzinfo=UTC)
+                created_at_utc = created_at_utc.astimezone(UTC)
+            except (ValueError, TypeError):
+                continue
+            if created_at_utc < cutoff:
+                continue
+            recent_incidents.append(incident)
+
+        recent_incidents.sort(
+            key=lambda item: item.created_at if item.created_at.tzinfo is not None else item.created_at.replace(tzinfo=UTC),
+            reverse=True,
+        )
+        return recent_incidents
 
     def _google_news_rss_url(self, query: str) -> str:
         encoded_query = quote_plus(query)

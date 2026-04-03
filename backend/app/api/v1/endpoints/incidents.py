@@ -52,7 +52,7 @@ async def incidents_geo(
 
 @router.get("/live", response_model=ApiResponse[list[IncidentOut]])
 async def live_incidents(
-    limit: int = Query(default=25, ge=1, le=50),
+    limit: int = Query(default=50, ge=1, le=100),
     current_user: UserRecord = Depends(_current_user),
 ) -> ApiResponse[list[IncidentOut]]:
     _ = current_user
