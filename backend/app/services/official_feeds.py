@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from html import unescape
 import json
@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, uuid5
 import httpx
 
 from app.config import get_settings
+from app.services.official_feed_filtering import KeywordMatcher, build_official_feed_keyword_matcher
 
 
 @dataclass(slots=True)
@@ -40,6 +41,8 @@ class OfficialFeedPost:
     signal_tags: list[str]
     source_info: dict[str, object]
     published_at: datetime
+    matched_keywords: list[str] = field(default_factory=list)
+    primary_keyword: str | None = None
 
 
 OFFICIAL_FEED_ACCOUNTS: tuple[OfficialFeedAccount, ...] = (
@@ -93,24 +96,6 @@ OFFICIAL_FEED_ACCOUNTS: tuple[OfficialFeedAccount, ...] = (
     ),
 )
 
-KEYWORD_TAGS: tuple[str, ...] = (
-    "lebanon",
-    "beirut",
-    "security",
-    "attack",
-    "strike",
-    "airport",
-    "explosion",
-    "parliament",
-    "government",
-    "south",
-    "border",
-    "unifil",
-    "protest",
-    "outage",
-    "hospital",
-)
-
 
 class OfficialFeedService:
     def __init__(self) -> None:
@@ -123,12 +108,14 @@ class OfficialFeedService:
         if not settings.official_feeds_enabled:
             return []
 
+        keyword_matcher = build_official_feed_keyword_matcher(settings.official_feed_filter_keywords)
         requested_limit = self._sanitize_limit(limit if limit is not None else settings.official_feed_limit, default=50)
         window_hours = self._window_hours(settings.live_news_window_hours)
         now = datetime.now(UTC)
         if self._cached_at and now - self._cached_at < self._cache_ttl:
             recent_cached = self._filter_recent_posts(self._cache, now=now, window_hours=window_hours)
-            return recent_cached[:requested_limit]
+            filtered_cached = self._apply_keyword_filter(recent_cached, keyword_matcher)
+            return filtered_cached[:requested_limit]
 
         posts: list[OfficialFeedPost] = []
         accounts = self._accounts(settings)
@@ -150,7 +137,8 @@ class OfficialFeedService:
         recent_posts = self._filter_recent_posts(deduped, now=now, window_hours=window_hours)
         self._cache = recent_posts
         self._cached_at = now
-        return recent_posts[:requested_limit]
+        filtered_posts = self._apply_keyword_filter(recent_posts, keyword_matcher)
+        return filtered_posts[:requested_limit]
 
     def _window_hours(self, configured_window: int | None) -> int:
         if not isinstance(configured_window, int):
@@ -287,7 +275,7 @@ class OfficialFeedService:
                     account_url=account.account_url,
                     post_url=post_url,
                     content=content,
-                    signal_tags=self._extract_tags(content),
+                    signal_tags=self._build_signal_tags(content),
                     source_info={
                         "name": account.publisher_name,
                         "type": account.publisher_type,
@@ -305,6 +293,25 @@ class OfficialFeedService:
                 break
 
         return posts
+
+    def _apply_keyword_filter(self, posts: list[OfficialFeedPost], matcher: KeywordMatcher) -> list[OfficialFeedPost]:
+        if not matcher.is_enabled:
+            for post in posts:
+                self._apply_match_metadata(post, [])
+            return posts
+
+        filtered_posts: list[OfficialFeedPost] = []
+
+        for post in posts:
+            match_result = matcher.match_record(post)
+            self._apply_match_metadata(post, match_result.matched_keywords)
+
+            # Only keep posts that match at least one configured keyword.
+            if not match_result.has_match:
+                continue
+            filtered_posts.append(post)
+
+        return filtered_posts
 
     def _clean_html(self, html_fragment: str) -> str:
         fragment = re.sub(r"<br\s*/?>", "\n", html_fragment, flags=re.IGNORECASE)
@@ -325,9 +332,15 @@ class OfficialFeedService:
             return parsed.replace(tzinfo=UTC)
         return parsed.astimezone(UTC)
 
-    def _extract_tags(self, content: str) -> list[str]:
-        lowered = content.lower()
-        tags = [tag for tag in KEYWORD_TAGS if tag in lowered]
+    def _apply_match_metadata(self, post: OfficialFeedPost, matched_keywords: list[str]) -> None:
+        post.matched_keywords = matched_keywords
+        post.primary_keyword = matched_keywords[0] if matched_keywords else None
+        post.signal_tags = self._build_signal_tags(post.content, matched_keywords)
+
+    def _build_signal_tags(self, content: str, matched_keywords: list[str] | None = None) -> list[str]:
+        # Match tags come first so existing consumers see the highest-priority
+        # configured keywords before supplemental hashtags.
+        tags = list(matched_keywords or [])
         hashtags = [match.group(1).lower() for match in re.finditer(r"#([\w\u0600-\u06ff]+)", content)]
         for tag in hashtags:
             if tag not in tags:

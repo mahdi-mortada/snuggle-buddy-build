@@ -86,6 +86,8 @@ type BackendOfficialFeedPost = {
   post_url: string;
   content: string;
   signal_tags: string[];
+  matched_keywords?: string[];
+  primary_keyword?: string | null;
   source_info: BackendSourceInfo;
   published_at: string;
 };
@@ -261,6 +263,8 @@ function mapOfficialFeedPost(post: BackendOfficialFeedPost): OfficialFeedPost {
     postUrl: post.post_url,
     content: post.content,
     signalTags: post.signal_tags ?? [],
+    matchedKeywords: post.matched_keywords ?? [],
+    primaryKeyword: post.primary_keyword ?? null,
     sourceInfo: mapSourceInfo(post.source_info),
     publishedAt: post.published_at,
   };

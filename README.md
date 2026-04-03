@@ -106,6 +106,7 @@ LIVE_NEWS_LIMIT=25
 OFFICIAL_FEEDS_ENABLED=true
 OFFICIAL_FEED_LIMIT=24
 OFFICIAL_FEED_EXTRA_CHANNELS_JSON=
+OFFICIAL_FEED_FILTER_KEYWORDS=[]
 ```
 
 ## Default Local Login
@@ -171,6 +172,31 @@ Notes:
 - the official-feeds system currently uses public Telegram channels
 - some Telegram channels may mirror X posts
 - direct X API integration is not required for local use
+
+Official-feed keyword filtering:
+
+- the backend combines available text fields such as `title`, `description`, `content`, `message`, and `summary`
+- matching is case-insensitive and uses substring checks, so `gov` matches `government`
+- filtering is opt-in; when the keyword list is empty, all recent official-feed posts are returned
+- posts with at least one configured keyword are returned when filtering is enabled
+- matching posts expose `matched_keywords` and `primary_keyword`, and matched keywords are placed first in `signal_tags`
+
+To update the keyword list:
+
+- edit `OFFICIAL_FEED_FILTER_KEYWORDS` in `backend/.env`
+- default value: `[]`, which keeps filtering disabled
+- preferred format: JSON array, for example `["airport","border","hospital"]`
+- comma-separated values are also accepted, for example `airport,border,hospital`
+- set it to `[]` to disable keyword filtering and return all recent official-feed posts
+
+Example:
+
+```text
+Configured keywords: ["airport", "border"]
+Input post content: "Border crossing update: airport traffic remains open."
+Output matched_keywords: ["airport", "border"]
+Output primary_keyword: "airport"
+```
 
 ### 4. Crisis Chat
 

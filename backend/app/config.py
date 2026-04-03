@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     official_feeds_enabled: bool = True
     official_feed_limit: int = 24
     official_feed_extra_channels_json: str = ""
+    official_feed_filter_keywords: str = ""
     admin_email: str = "admin@crisisshield.dev"
     admin_password: str = "admin12345"
     admin_full_name: str = "CrisisShield Admin"
