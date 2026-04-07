@@ -27,6 +27,7 @@ CrisisShield (internal name: **AMAN**) is a full-stack crisis monitoring and int
 14. [Celery Task Schedule](#14-celery-task-schedule)
 15. [Running Tests](#15-running-tests)
 16. [Troubleshooting](#16-troubleshooting)
+17. [Recent Updates](#17-recent-updates)
 
 ---
 
@@ -1327,4 +1328,51 @@ The official feeds system pulls from public Telegram channels. Channel availabil
 1. Confirm Redis is running and reachable: `redis-cli -p 6380 ping` (Docker) or `redis-cli ping` (local)
 2. Confirm the `REDIS_URL` in `backend/.env` matches the running Redis instance
 3. Check worker logs: `docker-compose logs celery-worker`
+
+### Chatbot gives outdated information
+
+The AI chatbot reads live incidents from:
+1. **Frontend context** (incidents visible on the dashboard when you open the chat)
+2. **Live news cache** (`live_news_service._cache`) — fetched at startup and refreshed every 5 minutes
+3. **Local store** — fallback seed data (only in `STORAGE_MODE=local`)
+
+If the chatbot seems out of date, wait ~5 minutes for the background refresh or restart the backend container to trigger an immediate news fetch.
+
+### PostgreSQL tables are empty after migration
+
+The app stores incidents in memory (live news cache), not in the PostgreSQL `incidents` table by default. To populate PostgreSQL manually, run the one-time seed script inside the container:
+
+```bash
+docker-compose exec backend python /app/seed_pg.py
+```
+
+This fetches the latest news and writes all incidents to PostgreSQL. The script can be re-run at any time — it uses `ON CONFLICT DO UPDATE` so it is safe to run multiple times.
+
+### DBeaver — how to connect
+
+| Field | Value |
+|---|---|
+| Host | `localhost` |
+| Port | `5433` (Docker maps 5433 → 5432 internally) |
+| Database | `crisisshield` |
+| Username | `postgres` |
+| Password | `postgres` |
+
+After connecting, expand `Databases → crisisshield → Schemas → public → Tables` to browse `incidents`, `alerts`, `risk_scores`, `regions`, `users`.
+
+---
+
+## 17. Recent Updates
+
+### April 2026 — Live Data & Chatbot Fixes
+
+| Change | Description |
+|--------|-------------|
+| **Live news on startup** | Backend now fetches real news from Google News (Reuters, Naharnet, LBCI, NNA, Al Jazeera, L'Orient Today, etc.) immediately on startup in all storage modes, not just `postgres` mode |
+| **Background news refresh** | A 5-minute `asyncio` background loop refreshes the news cache automatically without requiring Celery |
+| **Chatbot live data fix** | Chat endpoint now reads from `live_news_service._cache` when `local_store` is empty (postgres mode), so the AI always has current news |
+| **Chatbot system prompt** | Fully rewritten as an elite Lebanon intelligence analyst with current political leadership (Aoun, Salam, Berri, Nasrallah's death), exact incident timestamps, and no topic restrictions on Lebanon questions |
+| **Alembic migration fix** | Fixed `DROP COLUMN IF EXISTS regions.geometry` SQL syntax error that prevented table creation |
+| **ORM fix** | Renamed reserved SQLAlchemy attribute `metadata` → `extra_metadata` (mapped to `metadata` column) |
+| **PostgreSQL seed script** | Added `backend/seed_pg.py` to manually sync live news into PostgreSQL for DBeaver visibility |
 4. Restart workers: `docker-compose restart celery-worker celery-beat`
