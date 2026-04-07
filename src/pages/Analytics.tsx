@@ -6,26 +6,14 @@ import {
   AreaChart, Area,
 } from 'recharts';
 import { format } from 'date-fns';
-import { useMemo, useEffect, useState } from 'react';
-import { fetchBackendPredictions } from '@/services/backendApi';
-import { runtimeConfig } from '@/lib/runtimeConfig';
-import type { RiskPrediction } from '@/types/crisis';
+import { useMemo } from 'react';
 
 const tooltipStyle = {
   contentStyle: { backgroundColor: 'hsl(222 47% 11%)', border: '1px solid hsl(215 28% 22%)', borderRadius: '8px', fontSize: '12px', color: '#e2e8f0' },
 };
 
 export default function Analytics() {
-  const { riskScores, trendData, incidents, alerts, stats, lastUpdated, acknowledgeAlert, connectionStatus } = useLiveData(30000);
-  const [backendPredictions, setBackendPredictions] = useState<RiskPrediction[]>([]);
-
-  // Fetch real Prophet predictions from backend if available
-  useEffect(() => {
-    if (!runtimeConfig.hasBackendApi) return;
-    fetchBackendPredictions()
-      .then(setBackendPredictions)
-      .catch(() => {/* fall through to local computation */});
-  }, []);
+  const { riskScores, trendData, incidents, alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
 
   const riskBreakdownData = useMemo(() => riskScores.map((r) => ({
     region: r.region.replace(' Lebanon', '').replace('Baalbek-Hermel', 'B-Hermel'),
@@ -52,56 +40,29 @@ export default function Analytics() {
   })), [trendData]);
 
   const predictionData = useMemo(() => {
-    // Use real Prophet predictions from backend if available (24h horizon)
-    const topRegion24h = backendPredictions
-      .filter((p) => p.horizon === '24h')
-      .sort((a, b) => b.predictedScore - a.predictedScore)[0];
-
     const slice = trendData.slice(-24);
     if (slice.length < 2) return slice.map((d) => ({
       time: format(new Date(d.time), 'HH:mm'),
       actual: d.riskScore,
-      predicted: undefined as number | undefined,
-      upper: undefined as number | undefined,
-      lower: undefined as number | undefined,
+      predicted: undefined,
+      upper: undefined,
+      lower: undefined,
     }));
-
     const lastActual = slice[slice.length - 1].riskScore;
     const slope = lastActual - slice[slice.length - 2].riskScore;
-
     return slice.map((d, i) => {
       const stepsAhead = i - 12;
       const isProjected = i > 12;
-      let projected: number | undefined;
-      let upper: number | undefined;
-      let lower: number | undefined;
-
-      if (isProjected) {
-        if (topRegion24h) {
-          // Interpolate toward Prophet prediction
-          const progress = stepsAhead / 12;
-          projected = lastActual + (topRegion24h.predictedScore - lastActual) * progress;
-          const uncertainty = (topRegion24h.upperBound - topRegion24h.lowerBound) / 2 * progress;
-          upper = Math.min(100, projected + uncertainty);
-          lower = Math.max(0, projected - uncertainty);
-        } else {
-          projected = Math.min(100, Math.max(0, lastActual + slope * stepsAhead));
-          upper = Math.min(100, projected + 8);
-          lower = Math.max(0, projected - 8);
-        }
-        projected = Math.round(projected * 10) / 10;
-        upper = Math.round(upper * 10) / 10;
-        lower = Math.round(lower * 10) / 10;
-      }
+      const projected = isProjected ? Math.min(100, Math.max(0, lastActual + slope * stepsAhead)) : undefined;
       return {
         time: format(new Date(d.time), 'HH:mm'),
         actual: d.riskScore,
-        predicted: projected,
-        upper,
-        lower,
+        predicted: isProjected ? Math.round(projected! * 10) / 10 : undefined,
+        upper: isProjected ? Math.min(100, Math.round((projected! + 8) * 10) / 10) : undefined,
+        lower: isProjected ? Math.max(0, Math.round((projected! - 8) * 10) / 10) : undefined,
       };
     });
-  }, [trendData, backendPredictions]);
+  }, [trendData]);
 
   const anomalies = useMemo(() => {
     if (!incidents || incidents.length === 0) return [];
@@ -131,7 +92,7 @@ export default function Analytics() {
   }, [incidents]);
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
       <div className="space-y-6">
         <h1 className="text-xl font-bold text-foreground">Analytics & Intelligence</h1>
 

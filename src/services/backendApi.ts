@@ -1,5 +1,5 @@
 import { runtimeConfig } from "@/lib/runtimeConfig";
-import type { Alert, AlertStats, CredibilityLevel, DashboardStats, Incident, OfficialFeedPost, RegionRiskDetail, RiskPrediction, RiskScore, SourceInfo, TrendDataPoint } from "@/types/crisis";
+import type { Alert, CredibilityLevel, DashboardStats, Incident, OfficialFeedPost, RiskScore, SourceInfo, TrendDataPoint } from "@/types/crisis";
 
 type ApiEnvelope<T> = {
   success: boolean;
@@ -86,16 +86,10 @@ type BackendOfficialFeedPost = {
   post_url: string;
   content: string;
   signal_tags: string[];
+  matched_keywords?: string[];
+  primary_keyword?: string | null;
   source_info: BackendSourceInfo;
   published_at: string;
-  is_safety_relevant: boolean;
-  category: string;
-  severity: string;
-  region: string;
-  location_name: string;
-  location: { lat: number; lng: number };
-  risk_score: number;
-  keywords: string[];
 };
 
 export type BackendDashboardSnapshot = {
@@ -160,7 +154,6 @@ function normalizeIncidentCategory(value: string): Incident["category"] {
     value === "health" ||
     value === "terrorism" ||
     value === "cyber" ||
-    value === "armed_conflict" ||
     value === "other"
   ) {
     return value;
@@ -270,89 +263,11 @@ function mapOfficialFeedPost(post: BackendOfficialFeedPost): OfficialFeedPost {
     postUrl: post.post_url,
     content: post.content,
     signalTags: post.signal_tags ?? [],
+    matchedKeywords: post.matched_keywords ?? [],
+    primaryKeyword: post.primary_keyword ?? null,
     sourceInfo: mapSourceInfo(post.source_info),
     publishedAt: post.published_at,
-    isSafetyRelevant: post.is_safety_relevant,
-    category: normalizeIncidentCategory(post.category),
-    severity: normalizeIncidentSeverity(post.severity),
-    region: post.region,
-    locationName: post.location_name,
-    location: post.location,
-    riskScore: post.risk_score,
-    keywords: post.keywords ?? [],
   };
-}
-
-function officialFeedTitle(post: OfficialFeedPost): string {
-  const [firstLine] = post.content.split(/\r?\n/, 1);
-  const trimmed = firstLine?.trim() ?? "";
-  if (trimmed.length > 0) return trimmed.slice(0, 140);
-  return `${post.publisherName} official update`;
-}
-
-function sentimentFromOfficialSeverity(severity: OfficialFeedPost["severity"]): number {
-  if (severity === "critical") return -0.82;
-  if (severity === "high") return -0.58;
-  return -0.25;
-}
-
-function mapOfficialFeedPostToIncident(post: OfficialFeedPost): Incident {
-  return {
-    id: post.id,
-    source: "official_feed",
-    sourceInfo: {
-      ...post.sourceInfo,
-      url: post.accountUrl,
-    },
-    sourceUrl: post.postUrl,
-    title: officialFeedTitle(post),
-    description: post.content,
-    category: post.category,
-    severity: post.severity,
-    location: post.location,
-    locationName: post.locationName,
-    region: post.region,
-    sentimentScore: sentimentFromOfficialSeverity(post.severity),
-    riskScore: post.riskScore,
-    entities: [post.publisherName, post.locationName, post.region],
-    keywords: post.keywords,
-    status: "new",
-    createdAt: post.publishedAt,
-  };
-}
-
-function incidentSignature(incident: Incident): string {
-  const normalizedTitle = (incident.title || incident.description)
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 160);
-  return `${incident.region}|${normalizedTitle}`;
-}
-
-function mergeIncidents(primary: Incident[], secondary: Incident[]): Incident[] {
-  const byId = new Map<string, Incident>();
-  const seenSourceUrls = new Set<string>();
-  const seenSignatures = new Set<string>();
-
-  for (const incident of [...primary, ...secondary]) {
-    if (byId.has(incident.id)) continue;
-
-    const sourceUrl = incident.sourceUrl?.trim().toLowerCase();
-    const signature = incidentSignature(incident);
-
-    if (sourceUrl && seenSourceUrls.has(sourceUrl)) continue;
-    if (signature && seenSignatures.has(signature)) continue;
-
-    byId.set(incident.id, incident);
-    if (sourceUrl) seenSourceUrls.add(sourceUrl);
-    if (signature) seenSignatures.add(signature);
-  }
-
-  return Array.from(byId.values()).sort(
-    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
-  );
 }
 
 function severityRank(severity: Incident["severity"]): number {
@@ -463,7 +378,10 @@ function buildStatsFromIncidents(incidents: Incident[], riskScores: RiskScore[],
   };
 }
 
-function buildSnapshotFromIncidents(incidents: Incident[]): BackendDashboardSnapshot {
+function buildSnapshotFromLiveIncidents(liveIncidents: BackendIncident[]): BackendDashboardSnapshot {
+  const incidents = liveIncidents.map(mapIncident).sort(
+    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  );
   const riskScores = buildRiskScoresFromIncidents(incidents);
   const trendData = buildTrendDataFromIncidents(incidents);
   const alerts = buildAlertsFromIncidents(incidents);
@@ -514,6 +432,12 @@ async function requestBackend<T>(path: string, init: RequestInit = {}, retry = t
     throw new Error("Backend API is not configured");
   }
 
+  const requestUrl = `${runtimeConfig.backendApiBaseUrl}${path}`;
+  const isLiveIncidentsRequest = path.startsWith("/api/v1/incidents/live");
+  if (isLiveIncidentsRequest) {
+    console.log("[backendApi] live incidents request URL:", requestUrl);
+  }
+
   const token = await loginToBackend();
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
@@ -521,17 +445,33 @@ async function requestBackend<T>(path: string, init: RequestInit = {}, retry = t
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${runtimeConfig.backendApiBaseUrl}${path}`, {
+  const response = await fetch(requestUrl, {
     ...init,
     headers,
   });
+
+  const rawBody = await response.text();
+  let payload: ApiEnvelope<T> | null = null;
+  try {
+    payload = rawBody ? (JSON.parse(rawBody) as ApiEnvelope<T>) : null;
+  } catch {
+    payload = null;
+  }
+
+  if (isLiveIncidentsRequest) {
+    console.log("[backendApi] live incidents response status:", response.status);
+    console.log("[backendApi] live incidents response body:", payload ?? rawBody);
+  }
 
   if (response.status === 401 && retry) {
     storeToken(null);
     return requestBackend<T>(path, init, false);
   }
 
-  const payload = (await response.json()) as ApiEnvelope<T>;
+  if (!payload) {
+    throw new Error(`Backend response was not valid JSON (${response.status})`);
+  }
+
   if (!response.ok || !payload.success) {
     throw new Error(payload.error || `Backend request failed (${response.status})`);
   }
@@ -540,9 +480,8 @@ async function requestBackend<T>(path: string, init: RequestInit = {}, retry = t
 }
 
 export async function fetchBackendDashboardSnapshot(): Promise<BackendDashboardSnapshot> {
-  const [liveIncidents, officialFeedPosts, overview, incidentsPage, alerts, riskScores, trendData] = await Promise.all([
+  const [liveIncidents, overview, incidentsPage, alerts, riskScores, trendData] = await Promise.all([
     requestBackend<BackendIncident[]>("/api/v1/incidents/live?limit=30").catch(() => []),
-    requestBackend<BackendOfficialFeedPost[]>("/api/v1/official-feeds?limit=24").catch(() => []),
     requestBackend<BackendOverview>("/api/v1/dashboard/overview"),
     requestBackend<{ items: BackendIncident[]; page: number; per_page: number; total: number }>("/api/v1/incidents?page=1&per_page=50"),
     requestBackend<BackendAlert[]>("/api/v1/alerts"),
@@ -550,15 +489,8 @@ export async function fetchBackendDashboardSnapshot(): Promise<BackendDashboardS
     requestBackend<BackendTrendPoint[]>("/api/v1/dashboard/trends"),
   ]);
 
-  const mappedLiveIncidents = liveIncidents.map(mapIncident);
-  const mappedOfficialIncidents = officialFeedPosts
-    .map(mapOfficialFeedPost)
-    .filter((post) => post.isSafetyRelevant)
-    .map(mapOfficialFeedPostToIncident);
-  const mergedLiveIncidents = mergeIncidents(mappedLiveIncidents, mappedOfficialIncidents);
-
-  if (mergedLiveIncidents.length > 0) {
-    return buildSnapshotFromIncidents(mergedLiveIncidents);
+  if (liveIncidents.length > 0) {
+    return buildSnapshotFromLiveIncidents(liveIncidents);
   }
 
   const mappedTrendData = trendData.map((point) => ({
@@ -599,102 +531,11 @@ export async function fetchBackendOfficialFeedPosts(limit = 24): Promise<Officia
   return posts.map(mapOfficialFeedPost);
 }
 
-// ── New types for Phase 7 endpoints ──────────────────────────────────────────
-
-type BackendRiskPrediction = {
-  region: string;
-  horizon: string;
-  predicted_score: number;
-  lower_bound: number;
-  upper_bound: number;
-  confidence: number;
-  escalation_probability: number;
-  predicted_for: string;
-  model_version: string;
-};
-
-type BackendRegionDetail = {
-  region: string;
-  overall_score: number;
-  sentiment_component: number;
-  volume_component: number;
-  keyword_component: number;
-  behavior_component: number;
-  geospatial_component: number;
-  confidence: number;
-  calculated_at: string;
-  is_anomalous: boolean;
-  anomaly_score: number | null;
-  escalation_probability: number | null;
-  incident_count_24h: number;
-};
-
-type BackendAlertStats = {
-  total: number;
-  acknowledged: number;
-  by_severity: Record<string, number>;
-  average_response_minutes: number;
-};
-
-type BackendHotspot = {
-  type: "Feature";
-  geometry: { type: "Point"; coordinates: [number, number] };
-  properties: { region: string; riskScore: number; incidentCount: number };
-};
-
-function mapRiskPrediction(p: BackendRiskPrediction): RiskPrediction {
-  return {
-    region: p.region,
-    horizon: (p.horizon === "24h" || p.horizon === "48h" || p.horizon === "7d" ? p.horizon : "24h") as RiskPrediction["horizon"],
-    predictedScore: p.predicted_score,
-    lowerBound: p.lower_bound,
-    upperBound: p.upper_bound,
-    confidence: p.confidence,
-    escalationProbability: p.escalation_probability,
-    predictedFor: p.predicted_for,
-    modelVersion: p.model_version,
-  };
-}
-
-function mapRegionDetail(d: BackendRegionDetail): RegionRiskDetail {
-  return {
-    region: d.region,
-    overallScore: d.overall_score,
-    sentimentComponent: d.sentiment_component,
-    volumeComponent: d.volume_component,
-    keywordComponent: d.keyword_component,
-    behaviorComponent: d.behavior_component,
-    geospatialComponent: d.geospatial_component,
-    confidence: d.confidence,
-    calculatedAt: d.calculated_at,
-    isAnomalous: d.is_anomalous,
-    anomalyScore: d.anomaly_score,
-    escalationProbability: d.escalation_probability,
-    incidentCount24h: d.incident_count_24h,
-  };
-}
-
-export async function fetchBackendPredictions(region?: string): Promise<RiskPrediction[]> {
-  const path = region ? `/api/v1/risk/predictions?region=${encodeURIComponent(region)}` : "/api/v1/risk/predictions";
-  const raw = await requestBackend<BackendRiskPrediction[]>(path);
-  return raw.map(mapRiskPrediction);
-}
-
-export async function fetchBackendRegionDetail(region: string): Promise<RegionRiskDetail> {
-  const raw = await requestBackend<BackendRegionDetail>(`/api/v1/risk/region/${encodeURIComponent(region)}`);
-  return mapRegionDetail(raw);
-}
-
-export async function fetchBackendAlertStats(): Promise<AlertStats> {
-  const raw = await requestBackend<BackendAlertStats>("/api/v1/alerts/stats");
-  return {
-    total: raw.total,
-    acknowledged: raw.acknowledged,
-    bySeverity: raw.by_severity,
-    averageResponseMinutes: raw.average_response_minutes,
-  };
-}
-
-export async function fetchBackendHotspots(): Promise<BackendHotspot[]> {
-  return requestBackend<BackendHotspot[]>("/api/v1/dashboard/hotspots");
+export async function fetchBackendLiveIncidents(limit = 25): Promise<Incident[]> {
+  const numericLimit = Number.isFinite(limit) ? Math.trunc(limit) : 25;
+  const safeLimit = Math.min(50, Math.max(1, numericLimit || 25));
+  const incidents = await requestBackend<BackendIncident[]>(`/api/v1/incidents/live?limit=${safeLimit}`);
+  return incidents
+    .map(mapIncident)
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 }

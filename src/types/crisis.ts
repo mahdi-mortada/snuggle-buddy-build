@@ -1,19 +1,7 @@
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type AlertSeverity = 'info' | 'warning' | 'critical' | 'emergency';
-// armed_conflict added per blueprint Section 0.4.2
-export type IncidentCategory =
-  | 'violence'
-  | 'protest'
-  | 'natural_disaster'
-  | 'infrastructure'
-  | 'health'
-  | 'terrorism'
-  | 'cyber'
-  | 'armed_conflict'
-  | 'other';
+export type IncidentCategory = 'violence' | 'protest' | 'natural_disaster' | 'infrastructure' | 'health' | 'terrorism' | 'cyber' | 'other';
 export type IncidentStatus = 'new' | 'processing' | 'analyzed' | 'escalated' | 'resolved' | 'false_alarm';
-// Section 0.4.3 verification states
-export type VerificationStatus = 'unverified' | 'reviewed' | 'confirmed' | 'rejected';
 export type CredibilityLevel = 'verified' | 'high' | 'moderate' | 'low' | 'unverified';
 
 export interface SourceInfo {
@@ -45,16 +33,6 @@ export interface Incident {
   status: IncidentStatus;
   createdAt: string;
   corroboratedBy?: SourceInfo[];
-
-  // Section 0.4.3 — Data integrity fields
-  verificationStatus?: VerificationStatus;
-  confidenceScore?: number;
-  processedText?: string;
-
-  // Section 0.4.4 — Analyst workflow fields
-  reviewedBy?: string;
-  reviewedAt?: string;
-  analystNotes?: string;
 }
 
 export interface RiskScore {
@@ -67,23 +45,6 @@ export interface RiskScore {
   geospatialComponent: number;
   confidence: number;
   calculatedAt: string;
-  // Prediction / anomaly fields
-  isAnomalous?: boolean;
-  anomalyScore?: number;
-  escalationProbability?: number;
-  incidentCount24h?: number;
-}
-
-export interface RiskPrediction {
-  region: string;
-  horizon: '24h' | '48h' | '7d';
-  predictedScore: number;
-  lowerBound: number;
-  upperBound: number;
-  confidence: number;
-  escalationProbability: number;
-  predictedFor: string;
-  modelVersion: string;
 }
 
 export interface Alert {
@@ -95,18 +56,8 @@ export interface Alert {
   recommendation: string;
   region: string;
   isAcknowledged: boolean;
-  acknowledgedBy?: string;
-  acknowledgedAt?: string;
   createdAt: string;
   linkedIncidents: string[];
-  notificationChannels?: string[];
-}
-
-export interface AlertStats {
-  total: number;
-  acknowledged: number;
-  bySeverity: Record<string, number>;
-  averageResponseMinutes: number;
 }
 
 export interface DashboardStats {
@@ -134,22 +85,8 @@ export interface OfficialFeedPost {
   postUrl: string;
   content: string;
   signalTags: string[];
+  matchedKeywords?: string[];
+  primaryKeyword?: string | null;
   sourceInfo: SourceInfo;
   publishedAt: string;
-  isSafetyRelevant: boolean;
-  category: IncidentCategory;
-  severity: Severity;
-  region: string;
-  locationName: string;
-  location: { lat: number; lng: number };
-  riskScore: number;
-  keywords: string[];
-}
-
-// Region detail with full breakdown (from /risk/region/{region})
-export interface RegionRiskDetail extends RiskScore {
-  isAnomalous: boolean;
-  anomalyScore: number | null;
-  escalationProbability: number | null;
-  incidentCount24h: number;
 }

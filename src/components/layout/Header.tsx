@@ -1,18 +1,12 @@
-import { Search, Wifi, WifiOff } from 'lucide-react';
+import { Bell, Search, Wifi, WifiOff } from 'lucide-react';
 import type { BackendConnectionStatus } from '@/hooks/useBackendWebSocket';
-import type { Alert } from '@/types/crisis';
-import { NotificationCenter } from '@/components/alerts/NotificationCenter';
 
 export function Header({
   connectionStatus = 'connected',
   unacknowledgedAlerts = 0,
-  alerts = [],
-  onAcknowledge,
 }: {
   connectionStatus?: BackendConnectionStatus;
   unacknowledgedAlerts?: number;
-  alerts?: Alert[];
-  onAcknowledge?: (id: string) => void;
 }) {
   const connected = connectionStatus === 'connected';
   const connecting = connectionStatus === 'connecting';
@@ -63,10 +57,14 @@ export function Header({
         </div>
 
         {/* Notifications */}
-        <NotificationCenter
-          alerts={alerts}
-          onAcknowledge={onAcknowledge ?? (() => {})}
-        />
+        <button className="relative p-2 rounded-lg hover:bg-accent transition-colors">
+          <Bell className="w-5 h-5 text-muted-foreground" />
+          {unacknowledgedAlerts > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-critical text-critical-foreground text-[9px] font-bold leading-none">
+              {unacknowledgedAlerts > 99 ? '99+' : unacknowledgedAlerts}
+            </span>
+          )}
+        </button>
 
         {/* User avatar */}
         <div className="flex items-center gap-2">

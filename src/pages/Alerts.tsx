@@ -1,49 +1,13 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useLiveData } from '@/hooks/useLiveData';
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, AlertOctagon, Info, Siren, Share2, Download, Bell, BellOff, ExternalLink, Volume2, VolumeX } from 'lucide-react';
+import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, AlertOctagon, Info, Siren, Share2, Download, Bell, BellOff, ExternalLink } from 'lucide-react';
 import type { AlertSeverity } from '@/types/crisis';
 import { SourceTag, CredibilityBadge } from '@/components/shared/SourceBadge';
 import { toast } from 'sonner';
 
 const tabs = ['All', 'Emergency', 'Critical', 'Warning', 'Acknowledged'] as const;
-
-/** Play a short synthesized alert tone via Web Audio API. */
-function playAlertTone(severity: AlertSeverity, audioCtxRef: React.MutableRefObject<AudioContext | null>): void {
-  try {
-    if (!audioCtxRef.current) {
-      audioCtxRef.current = new AudioContext();
-    }
-    const ctx = audioCtxRef.current;
-    if (ctx.state === 'suspended') {
-      void ctx.resume();
-    }
-
-    const now = ctx.currentTime;
-    const isEmergency = severity === 'emergency';
-
-    // Frequencies and durations differ by severity
-    const tones = isEmergency
-      ? [{ freq: 880, start: 0, dur: 0.15 }, { freq: 660, start: 0.18, dur: 0.15 }, { freq: 880, start: 0.36, dur: 0.15 }]
-      : [{ freq: 660, start: 0, dur: 0.12 }, { freq: 880, start: 0.15, dur: 0.12 }];
-
-    for (const tone of tones) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = isEmergency ? 'sawtooth' : 'sine';
-      osc.frequency.setValueAtTime(tone.freq, now + tone.start);
-      gain.gain.setValueAtTime(0.35, now + tone.start);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + tone.start + tone.dur);
-      osc.start(now + tone.start);
-      osc.stop(now + tone.start + tone.dur + 0.02);
-    }
-  } catch {
-    // Web Audio not available — fail silently
-  }
-}
 
 const severityConfig: Record<AlertSeverity, { icon: typeof AlertTriangle; color: string; bg: string; border: string }> = {
   emergency: { icon: Siren, color: 'text-critical', bg: 'bg-critical/10', border: 'border-critical/30 glow-critical' },
@@ -56,27 +20,6 @@ export default function Alerts() {
   const { alerts, incidents, stats, lastUpdated, acknowledgeAlert, acknowledgeAllAlerts, connectionStatus } = useLiveData(30000);
   const [activeTab, setActiveTab] = useState<typeof tabs[number]>('All');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const seenAlertIdsRef = useRef<Set<string>>(new Set());
-
-  // Play sound when new CRITICAL or EMERGENCY alerts arrive
-  useEffect(() => {
-    if (!soundEnabled) return;
-    const highSeverityAlerts = alerts.filter(
-      (a) => !a.isAcknowledged && (a.severity === 'critical' || a.severity === 'emergency')
-    );
-    let played = false;
-    for (const alert of highSeverityAlerts) {
-      if (!seenAlertIdsRef.current.has(alert.id)) {
-        seenAlertIdsRef.current.add(alert.id);
-        if (!played) {
-          playAlertTone(alert.severity, audioCtxRef);
-          played = true; // only one tone per batch
-        }
-      }
-    }
-  }, [alerts, soundEnabled]);
 
   const filtered = alerts.filter((a) => {
     if (activeTab === 'All') return true;
@@ -90,7 +33,7 @@ export default function Alerts() {
   };
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
       <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-bold text-foreground">Alerts</h1>
@@ -99,18 +42,6 @@ export default function Alerts() {
             <button onClick={() => { void acknowledgeAllAlerts().then(() => toast.success('All alerts acknowledged')); }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-success/10 text-success border border-success/20 hover:bg-success/20 transition-colors">
               <CheckCircle2 className="w-3.5 h-3.5" /> Acknowledge All
-            </button>
-            <button
-              onClick={() => setSoundEnabled((v) => !v)}
-              title={soundEnabled ? 'Mute alert sounds' : 'Enable alert sounds'}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                soundEnabled
-                  ? 'bg-primary/10 text-primary border-primary/20 hover:bg-primary/20'
-                  : 'bg-secondary/50 text-muted-foreground border-border/50 hover:bg-secondary'
-              }`}
-            >
-              {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-              {soundEnabled ? 'Sound On' : 'Sound Off'}
             </button>
             <button onClick={() => toast.success('Alert report exported')}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-secondary/50 text-foreground border border-border/50 hover:bg-secondary transition-colors">

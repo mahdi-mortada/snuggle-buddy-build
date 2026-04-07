@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "./pages/Dashboard";
@@ -23,7 +23,6 @@ const App = () => (
           <Route path="/map" element={<IncidentMap />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/official-feeds" element={<OfficialFeeds />} />
-          <Route path="/feeds" element={<Navigate to="/official-feeds" replace />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/login" element={<Login />} />

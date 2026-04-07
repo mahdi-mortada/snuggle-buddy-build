@@ -1,0 +1,144 @@
+import type { OfficialFeedPost } from '@/types/crisis';
+import { inferRegionIdsFromText, normalizeArabicText, normalizeLatinText, type LebanonLocationIndex, type RegionOption } from '@/lib/lebanonLocations';
+
+export type OfficialFeedFilterState = {
+  selectedSources: string[];
+  selectedRegionIds: string[];
+  keyword: string;
+};
+
+export type FilterOption = {
+  id: string;
+  label: string;
+  searchText?: string;
+};
+
+export type PreparedOfficialFeedPost = {
+  post: OfficialFeedPost;
+  sourceId: string;
+  sourceLabel: string;
+  searchTextLatin: string;
+  searchTextArabic: string;
+  matchedRegionIds: string[];
+  matchedRegions: RegionOption[];
+};
+
+export function buildSourceOptions(posts: OfficialFeedPost[]): FilterOption[] {
+  const options = new Map<string, FilterOption>();
+
+  for (const post of posts) {
+    const sourceLabel = post.publisherName || post.accountLabel || post.sourceInfo.name;
+    const sourceId = normalizeLatinText(sourceLabel);
+    if (!sourceId || options.has(sourceId)) continue;
+    options.set(sourceId, {
+      id: sourceId,
+      label: sourceLabel,
+      searchText: `${sourceLabel} ${post.accountLabel} ${post.accountHandle}`,
+    });
+  }
+
+  return Array.from(options.values()).sort((left, right) => left.label.localeCompare(right.label));
+}
+
+export function prepareOfficialFeedPosts(
+  posts: OfficialFeedPost[],
+  locationIndex: LebanonLocationIndex | null,
+): PreparedOfficialFeedPost[] {
+  return posts.map((post) => {
+    const sourceLabel = post.publisherName || post.accountLabel || post.sourceInfo.name;
+    const sourceId = normalizeLatinText(sourceLabel);
+    const rawSearchText = [
+      post.publisherName,
+      post.accountLabel,
+      post.accountHandle,
+      post.content,
+      ...(post.signalTags ?? []),
+      ...(post.matchedKeywords ?? []),
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    // Precompute normalized text and inferred regions once so the UI can
+    // re-filter instantly as users change source, region, or keyword filters.
+    const matchedRegionIds = inferRegionIdsFromText(rawSearchText, locationIndex);
+    const matchedRegions = matchedRegionIds
+      .map((regionId) => {
+        const region = locationIndex?.regionLookup.get(regionId);
+        if (!region) return null;
+
+        return {
+          id: region.id,
+          label: region.label,
+          englishName: region.englishName,
+          arabicName: region.arabicName,
+          searchText: region.searchText,
+        } satisfies RegionOption;
+      })
+      .filter((region): region is RegionOption => region !== null);
+
+    return {
+      post,
+      sourceId,
+      sourceLabel,
+      searchTextLatin: normalizeLatinText(rawSearchText),
+      searchTextArabic: normalizeArabicText(rawSearchText),
+      matchedRegionIds,
+      matchedRegions,
+    };
+  });
+}
+
+export function buildRegionOptions(preparedPosts: PreparedOfficialFeedPost[]): FilterOption[] {
+  const options = new Map<string, FilterOption>();
+
+  for (const preparedPost of preparedPosts) {
+    for (const region of preparedPost.matchedRegions) {
+      if (options.has(region.id)) continue;
+      options.set(region.id, {
+        id: region.id,
+        label: region.label,
+        searchText: `${region.englishName} ${region.arabicName}`.trim(),
+      });
+    }
+  }
+
+  return Array.from(options.values()).sort((left, right) => left.label.localeCompare(right.label));
+}
+
+export function filterOfficialFeedPosts(
+  preparedPosts: PreparedOfficialFeedPost[],
+  filters: OfficialFeedFilterState,
+): PreparedOfficialFeedPost[] {
+  const selectedSourceIds = new Set(filters.selectedSources);
+  const selectedRegionIds = new Set(filters.selectedRegionIds);
+  const keywordLatin = normalizeLatinText(filters.keyword);
+  const keywordArabic = normalizeArabicText(filters.keyword);
+
+  return preparedPosts.filter((preparedPost) => {
+    // Filters combine with AND logic: once any active filter fails, the post
+    // is excluded from the visible Official Feeds list.
+    if (selectedSourceIds.size > 0 && !selectedSourceIds.has(preparedPost.sourceId)) {
+      return false;
+    }
+
+    if (selectedRegionIds.size > 0 && !preparedPost.matchedRegionIds.some((regionId) => selectedRegionIds.has(regionId))) {
+      return false;
+    }
+
+    if (keywordLatin && !preparedPost.searchTextLatin.includes(keywordLatin)) {
+      if (!keywordArabic || !preparedPost.searchTextArabic.includes(keywordArabic)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+export function groupOfficialFeedPostsByPublisher(preparedPosts: PreparedOfficialFeedPost[]): Record<string, PreparedOfficialFeedPost[]> {
+  return preparedPosts.reduce<Record<string, PreparedOfficialFeedPost[]>>((groups, preparedPost) => {
+    const key = preparedPost.post.publisherName;
+    groups[key] = groups[key] ? [...groups[key], preparedPost] : [preparedPost];
+    return groups;
+  }, {});
+}
