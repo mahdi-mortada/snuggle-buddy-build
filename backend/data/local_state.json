@@ -373,9 +373,9 @@
       "message": "Power grid disruption has crossed the emergency threshold.",
       "recommendation": "Dispatch repair crews, notify hospitals, and activate contingency power plans.",
       "region": "North Lebanon",
-      "is_acknowledged": false,
-      "acknowledged_by": null,
-      "acknowledged_at": null,
+      "is_acknowledged": true,
+      "acknowledged_by": "6b869563-862f-48d2-b9f6-1b2b8b3c8b9c",
+      "acknowledged_at": "2026-04-07T09:25:15.012951Z",
       "notification_channels": [
         "dashboard"
       ],
@@ -383,6 +383,68 @@
         "incident-2"
       ],
       "created_at": "2026-03-30T13:48:42.226940Z"
+    }
+  ],
+  "sources": [
+    {
+      "id": "source-b766699a-c47e-581a-9bd6-07d4cef7da17",
+      "source_type": "telegram",
+      "name": "LBCI",
+      "username": "lbci_news",
+      "telegram_id": null,
+      "is_active": true,
+      "is_custom": false,
+      "created_at": "2026-04-07T09:15:07.066524Z"
+    },
+    {
+      "id": "source-c5bf5a1f-a4b1-50e0-986c-6c609fb6bf1b",
+      "source_type": "telegram",
+      "name": "MTV Lebanon",
+      "username": "mtvlebanonews",
+      "telegram_id": null,
+      "is_active": true,
+      "is_custom": false,
+      "created_at": "2026-04-07T09:15:07.066524Z"
+    },
+    {
+      "id": "source-8c93da25-c9d3-59a2-85bb-b7a779b6b805",
+      "source_type": "telegram",
+      "name": "Al Jadeed",
+      "username": "aljadeedtelegram",
+      "telegram_id": null,
+      "is_active": true,
+      "is_custom": false,
+      "created_at": "2026-04-07T09:15:07.066524Z"
+    },
+    {
+      "id": "source-851ab2b1-ad2f-53de-b2cd-dd0e13ca6dc6",
+      "source_type": "telegram",
+      "name": "Al Manar",
+      "username": "almanarnews",
+      "telegram_id": null,
+      "is_active": true,
+      "is_custom": false,
+      "created_at": "2026-04-07T09:15:07.066524Z"
+    },
+    {
+      "id": "source-a535d5a2-5973-5b90-9f4d-1c95f2c6f070",
+      "source_type": "telegram",
+      "name": "\u0627\u0644\u062c\u0632\u064a\u0631\u0629 \u0639\u0627\u062c\u0644",
+      "username": "aljazeerabrk",
+      "telegram_id": 1480288280,
+      "is_active": true,
+      "is_custom": true,
+      "created_at": "2026-04-07T12:46:50.919019Z"
+    },
+    {
+      "id": "source-62dd259b-9666-5ed0-ba52-3bf2f9c39508",
+      "source_type": "telegram",
+      "name": "ANNAHAR | \u0627\u0644\u0646\u0647\u0627\u0631",
+      "username": "annaharnewspaper",
+      "telegram_id": 1463700216,
+      "is_active": true,
+      "is_custom": true,
+      "created_at": "2026-04-07T13:29:16.497232Z"
     }
   ]
 }

@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.models.alert import AlertRecord
 from app.models.incident import IncidentRecord
 from app.models.risk_score import RiskPredictionRecord, RiskScoreRecord
+from app.models.source import SourceRecord, build_default_sources
 from app.models.user import UserRecord
 from app.services.alert_service import alert_service
 from app.services.auth_service import hash_password
@@ -17,19 +18,28 @@ from app.services.risk_scoring import risk_scoring_service
 from app.services.seed_data import build_seed_admin, build_seed_alerts, build_seed_incidents, build_seed_risk_scores
 
 
+class LocalStoreConflictError(Exception):
+    pass
+
+
 class LocalStore:
     def __init__(self) -> None:
         settings = get_settings()
         self._path = Path(settings.local_data_file)
-        self._state: dict[str, list[dict]] = {"users": [], "incidents": [], "risk_scores": [], "alerts": []}
+        self._state: dict[str, list[dict]] = {"users": [], "incidents": [], "risk_scores": [], "alerts": [], "sources": []}
 
     def initialize(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         settings = get_settings()
         if self._path.exists():
             self._state = json.loads(self._path.read_text(encoding="utf-8"))
+            missing_sources_key = "sources" not in self._state
+            self._ensure_state_shape()
             if settings.storage_mode == "postgres":
                 self._normalize_postgres_state()
+            if missing_sources_key:
+                self._state["sources"] = [source.model_dump(mode="json") for source in build_default_sources()]
+                self.persist()
             if self._state.get("users"):
                 return
         admin = build_seed_admin(
@@ -53,8 +63,16 @@ class LocalStore:
             "incidents": [incident.model_dump(mode="json") for incident in incidents],
             "risk_scores": [risk.model_dump(mode="json") for risk in risk_scores],
             "alerts": [alert.model_dump(mode="json") for alert in alerts],
+            "sources": [source.model_dump(mode="json") for source in build_default_sources()],
         }
         self.persist()
+
+    def _ensure_state_shape(self) -> None:
+        self._state.setdefault("users", [])
+        self._state.setdefault("incidents", [])
+        self._state.setdefault("risk_scores", [])
+        self._state.setdefault("alerts", [])
+        self._state.setdefault("sources", [])
 
     def _normalize_postgres_state(self) -> None:
         incidents = [
@@ -79,6 +97,47 @@ class LocalStore:
         self._state["users"].append(user.model_dump(mode="json"))
         self.persist()
         return user
+
+    def list_sources(self) -> list[SourceRecord]:
+        return [SourceRecord.model_validate(row) for row in self._state["sources"]]
+
+    def get_source(self, source_id: str) -> SourceRecord | None:
+        return next((row for row in self.list_sources() if row.id == source_id), None)
+
+    def create_source(self, source: SourceRecord) -> SourceRecord:
+        for existing_source in self.list_sources():
+            if source.telegram_id is not None and existing_source.telegram_id is not None and existing_source.telegram_id == source.telegram_id:
+                raise LocalStoreConflictError("duplicate_telegram_id")
+            if existing_source.username.casefold() == source.username.casefold():
+                raise LocalStoreConflictError("duplicate_username")
+        self._state["sources"].append(source.model_dump(mode="json"))
+        self.persist()
+        return source
+
+    def update_source(self, source_id: str, updates: dict) -> SourceRecord:
+        sources = self.list_sources()
+        target: SourceRecord | None = None
+        for source in sources:
+            if source.id == source_id:
+                for key, value in updates.items():
+                    if hasattr(source, key):
+                        setattr(source, key, value)
+                target = source
+                break
+        if target is None:
+            raise KeyError(source_id)
+        self._state["sources"] = [source.model_dump(mode="json") for source in sources]
+        self.persist()
+        return target
+
+    def delete_source(self, source_id: str) -> SourceRecord:
+        sources = self.list_sources()
+        target = next((source for source in sources if source.id == source_id), None)
+        if target is None:
+            raise KeyError(source_id)
+        self._state["sources"] = [source.model_dump(mode="json") for source in sources if source.id != source_id]
+        self.persist()
+        return target
 
     def list_incidents(self) -> list[IncidentRecord]:
         return [IncidentRecord.model_validate(row) for row in self._state["incidents"]]

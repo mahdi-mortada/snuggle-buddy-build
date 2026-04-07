@@ -9,6 +9,9 @@ from app.schemas.incident import IncidentLocationOut, SourceInfoOut
 
 class OfficialFeedPostOut(BaseModel):
     id: str
+    source_id: str
+    source_name: str
+    is_custom: bool
     platform: str
     publisher_name: str
     account_label: str
@@ -27,3 +30,5 @@ class OfficialFeedPostOut(BaseModel):
     location: IncidentLocationOut
     risk_score: float
     keywords: list[str] = Field(default_factory=list)
+    matched_keywords: list[str] = Field(default_factory=list)
+    primary_keyword: str | None = None

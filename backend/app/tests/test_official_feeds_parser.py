@@ -12,6 +12,9 @@ def test_official_feeds_endpoint_returns_posts(monkeypatch) -> None:
         return [
             OfficialFeedPost(
                 id="post-1",
+                source_id="source-1",
+                source_name="LBCI",
+                is_custom=False,
                 platform="telegram",
                 publisher_name="LBCI",
                 account_label="LBCI News Wire",
@@ -30,6 +33,14 @@ def test_official_feeds_endpoint_returns_posts(monkeypatch) -> None:
                     "verifiedBy": [],
                 },
                 published_at=datetime(2026, 3, 31, 8, 0, tzinfo=UTC),
+                is_safety_relevant=True,
+                category="other",
+                severity="medium",
+                region="Beirut",
+                location_name="Lebanon",
+                location={"lat": 33.8938, "lng": 35.5018},
+                risk_score=58.0,
+                keywords=["breaking"],
             )
         ]
 
@@ -51,3 +62,4 @@ def test_official_feeds_endpoint_returns_posts(monkeypatch) -> None:
     payload = response.json()
     assert payload["success"] is True
     assert payload["data"][0]["platform"] == "telegram"
+    assert payload["data"][0]["source_name"] == "LBCI"

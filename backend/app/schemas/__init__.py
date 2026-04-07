@@ -3,6 +3,7 @@ from .auth import LoginRequest, TokenOut, UserCreateRequest, UserOut
 from .common import ApiResponse, PaginatedData
 from .incident import IncidentCreate, IncidentGeoFeatureCollection, IncidentOut, IncidentStatusUpdate
 from .risk import RiskPredictionOut, RiskRecalculateRequest, RiskScoreOut
+from .source import SourceCreate, SourceOut, SourceUpdate
 
 __all__ = [
     "AlertAcknowledgeRequest",
@@ -18,6 +19,9 @@ __all__ = [
     "RiskPredictionOut",
     "RiskRecalculateRequest",
     "RiskScoreOut",
+    "SourceCreate",
+    "SourceOut",
+    "SourceUpdate",
     "TokenOut",
     "UserCreateRequest",
     "UserOut",

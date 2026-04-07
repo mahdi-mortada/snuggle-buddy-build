@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from html import unescape
-import json
 import re
 from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
@@ -11,12 +10,18 @@ from uuid import NAMESPACE_URL, uuid5
 import httpx
 
 from app.config import get_settings
+from app.models.source import SourceRecord
+from app.services.nlp_pipeline import nlp_pipeline
+from app.services.official_feed_filtering import KeywordMatcher, build_official_feed_keyword_matcher
 from app.services.place_gazetteer import place_gazetteer
 from app.services.seed_data import REGION_COORDINATES
+from app.services.source_registry import source_registry_service
 
 
 @dataclass(slots=True)
 class OfficialFeedAccount:
+    source_id: str
+    source_name: str
     publisher_name: str
     publisher_type: str
     credibility: str
@@ -27,11 +32,15 @@ class OfficialFeedAccount:
     account_label: str
     account_url: str
     feed_url: str
+    is_custom: bool
 
 
 @dataclass(slots=True)
 class OfficialFeedPost:
     id: str
+    source_id: str
+    source_name: str
+    is_custom: bool
     platform: str
     publisher_name: str
     account_label: str
@@ -50,58 +59,8 @@ class OfficialFeedPost:
     location: dict[str, float]
     risk_score: float
     keywords: list[str]
-
-
-OFFICIAL_FEED_ACCOUNTS: tuple[OfficialFeedAccount, ...] = (
-    OfficialFeedAccount(
-        publisher_name="LBCI",
-        publisher_type="tv",
-        credibility="verified",
-        credibility_score=88,
-        initials="LB",
-        platform="telegram",
-        handle="LBCI_NEWS",
-        account_label="LBCI News Wire",
-        account_url="https://t.me/LBCI_NEWS",
-        feed_url="https://t.me/s/LBCI_NEWS",
-    ),
-    OfficialFeedAccount(
-        publisher_name="MTV Lebanon",
-        publisher_type="tv",
-        credibility="high",
-        credibility_score=84,
-        initials="MT",
-        platform="telegram",
-        handle="MTVLebanoNews",
-        account_label="MTV Lebanon News",
-        account_url="https://t.me/MTVLebanoNews",
-        feed_url="https://t.me/s/MTVLebanoNews",
-    ),
-    OfficialFeedAccount(
-        publisher_name="Al Jadeed",
-        publisher_type="tv",
-        credibility="high",
-        credibility_score=82,
-        initials="AJ",
-        platform="telegram",
-        handle="Aljadeedtelegram",
-        account_label="Al Jadeed News",
-        account_url="https://t.me/Aljadeedtelegram",
-        feed_url="https://t.me/s/Aljadeedtelegram",
-    ),
-    OfficialFeedAccount(
-        publisher_name="Al Manar",
-        publisher_type="tv",
-        credibility="high",
-        credibility_score=80,
-        initials="AM",
-        platform="telegram",
-        handle="almanarnews",
-        account_label="Al Manar TV",
-        account_url="https://t.me/almanarnews",
-        feed_url="https://t.me/s/almanarnews",
-    ),
-)
+    matched_keywords: list[str] = field(default_factory=list)
+    primary_keyword: str | None = None
 
 KEYWORD_TAGS: tuple[str, ...] = (
     "lebanon",
@@ -295,12 +254,51 @@ HIGH_KEYWORDS: tuple[str, ...] = (
     "جرحى", "جريح", "تحذير", "إنذار", "انقطاع", "احتجاج", "إضراب", "اضراب",
 )
 
+OFFICIAL_SOURCE_PROFILES: dict[str, dict[str, object]] = {
+    "lbci_news": {
+        "publisher_name": "LBCI",
+        "account_label": "LBCI News Wire",
+        "publisher_type": "tv",
+        "credibility": "verified",
+        "credibility_score": 88.0,
+        "initials": "LB",
+    },
+    "mtvlebanonews": {
+        "publisher_name": "MTV Lebanon",
+        "account_label": "MTV Lebanon News",
+        "publisher_type": "tv",
+        "credibility": "high",
+        "credibility_score": 84.0,
+        "initials": "MT",
+    },
+    "aljadeedtelegram": {
+        "publisher_name": "Al Jadeed",
+        "account_label": "Al Jadeed News",
+        "publisher_type": "tv",
+        "credibility": "high",
+        "credibility_score": 82.0,
+        "initials": "AJ",
+    },
+    "almanarnews": {
+        "publisher_name": "Al Manar",
+        "account_label": "Al Manar TV",
+        "publisher_type": "tv",
+        "credibility": "high",
+        "credibility_score": 80.0,
+        "initials": "AM",
+    },
+}
+
 
 class OfficialFeedService:
     def __init__(self) -> None:
         self._cache: list[OfficialFeedPost] = []
         self._cached_at: datetime | None = None
         self._cache_ttl = timedelta(minutes=3)
+
+    def invalidate_cache(self) -> None:
+        self._cache = []
+        self._cached_at = None
 
     async def fetch_posts(self, limit: int | None = None) -> list[OfficialFeedPost]:
         settings = get_settings()
@@ -313,7 +311,8 @@ class OfficialFeedService:
             return self._cache[:requested_limit]
 
         posts: list[OfficialFeedPost] = []
-        accounts = self._accounts(settings)
+        accounts = self._accounts()
+        keyword_matcher = build_official_feed_keyword_matcher(settings.official_feed_filter_keywords)
         async with httpx.AsyncClient(
             timeout=15,
             follow_redirects=True,
@@ -329,66 +328,41 @@ class OfficialFeedService:
 
         posts.sort(key=lambda item: item.published_at, reverse=True)
         deduped = self._dedupe_posts(posts)
-        filtered = [enriched for post in deduped if (enriched := self._enrich_post(post))]
+        filtered: list[OfficialFeedPost] = []
+        for post in deduped:
+            if enriched := await self._process_post(post, keyword_matcher):
+                filtered.append(enriched)
         self._cache = filtered
         self._cached_at = now
         return filtered[:requested_limit]
 
-    def _accounts(self, settings) -> list[OfficialFeedAccount]:
-        accounts = list(OFFICIAL_FEED_ACCOUNTS)
-        extra_config = settings.official_feed_extra_channels_json.strip()
-        if not extra_config:
-            return accounts
+    def _accounts(self) -> list[OfficialFeedAccount]:
+        return [self._account_from_source(source) for source in source_registry_service.list_active_sources("telegram")]
 
-        try:
-            raw_accounts = json.loads(extra_config)
-        except json.JSONDecodeError:
-            return accounts
-
-        if not isinstance(raw_accounts, list):
-            return accounts
-
-        for item in raw_accounts:
-            account = self._account_from_mapping(item)
-            if account is not None:
-                accounts.append(account)
-
-        return accounts
-
-    def _account_from_mapping(self, item: object) -> OfficialFeedAccount | None:
-        if not isinstance(item, dict):
-            return None
-
-        platform = str(item.get("platform", "telegram")).strip().lower()
-        handle = str(item.get("handle", "")).strip().lstrip("@")
-        publisher_name = str(item.get("publisher_name", "")).strip()
-        account_label = str(item.get("account_label", publisher_name)).strip() or publisher_name
-        publisher_type = str(item.get("publisher_type", "social_media")).strip() or "social_media"
-        credibility = str(item.get("credibility", "moderate")).strip() or "moderate"
-        initials = str(item.get("initials", publisher_name[:2].upper())).strip() or "OF"
-
-        if not publisher_name or not handle:
-            return None
-
-        try:
-            credibility_score = float(item.get("credibility_score", 60))
-        except (TypeError, ValueError):
-            credibility_score = 60.0
-
-        account_url = str(item.get("account_url", f"https://t.me/{handle}")).strip() or f"https://t.me/{handle}"
-        feed_url = str(item.get("feed_url", f"https://t.me/s/{handle}")).strip() or f"https://t.me/s/{handle}"
+    def _account_from_source(self, source: SourceRecord) -> OfficialFeedAccount:
+        profile = OFFICIAL_SOURCE_PROFILES.get(source.username.casefold(), {})
+        publisher_name = str(profile.get("publisher_name", source.name)).strip() or source.name
+        account_label = str(profile.get("account_label", source.name)).strip() or source.name
+        publisher_type = str(profile.get("publisher_type", "social_media")).strip() or "social_media"
+        credibility = str(profile.get("credibility", "moderate" if source.is_custom else "high")).strip() or "moderate"
+        credibility_score = float(profile.get("credibility_score", 68.0 if source.is_custom else 80.0))
+        initials = str(profile.get("initials", self._initials_for_name(source.name))).strip() or "TG"
+        handle = source.username.strip().lstrip("@")
 
         return OfficialFeedAccount(
+            source_id=source.id,
+            source_name=source.name,
             publisher_name=publisher_name,
             publisher_type=publisher_type,
             credibility=credibility,
             credibility_score=credibility_score,
             initials=initials,
-            platform=platform,
+            platform="telegram",
             handle=handle,
             account_label=account_label,
-            account_url=account_url,
-            feed_url=feed_url,
+            account_url=f"https://t.me/{handle}",
+            feed_url=f"https://t.me/s/{handle}",
+            is_custom=source.is_custom,
         )
 
     def _parse_telegram_channel(self, account: OfficialFeedAccount, html_text: str) -> list[OfficialFeedPost]:
@@ -423,6 +397,9 @@ class OfficialFeedService:
             posts.append(
                 OfficialFeedPost(
                     id=f"official-feed-{uuid5(NAMESPACE_URL, post_url)}",
+                    source_id=account.source_id,
+                    source_name=account.source_name,
+                    is_custom=account.is_custom,
                     platform=account.platform,
                     publisher_name=account.publisher_name,
                     account_label=account.account_label,
@@ -432,7 +409,7 @@ class OfficialFeedService:
                     content=content,
                     signal_tags=self._extract_tags(content),
                     source_info={
-                        "name": account.publisher_name,
+                        "name": account.source_name,
                         "type": account.publisher_type,
                         "credibility": account.credibility,
                         "credibilityScore": account.credibility_score,
@@ -460,6 +437,23 @@ class OfficialFeedService:
 
         return posts
 
+    async def _process_post(self, post: OfficialFeedPost, keyword_matcher: KeywordMatcher) -> OfficialFeedPost | None:
+        nlp_result = await nlp_pipeline.process(
+            post.content,
+            metadata={"source_id": post.source_id, "source_name": post.source_name, "is_custom": post.is_custom},
+        )
+        enriched = self._enrich_post(post, nlp_result=nlp_result)
+        if enriched is None:
+            return None
+
+        if keyword_matcher.is_enabled:
+            match_result = keyword_matcher.match_text(enriched.content)
+            if not match_result.has_match:
+                return None
+            enriched = self._apply_match_metadata(enriched, match_result.matched_keywords)
+
+        return enriched
+
     def _clean_html(self, html_fragment: str) -> str:
         fragment = re.sub(r"<br\s*/?>", "\n", html_fragment, flags=re.IGNORECASE)
         fragment = re.sub(r"</p>", "\n", fragment, flags=re.IGNORECASE)
@@ -482,8 +476,7 @@ class OfficialFeedService:
     def _extract_tags(self, content: str) -> list[str]:
         lowered = content.lower()
         tags = [tag for tag in KEYWORD_TAGS if tag in lowered]
-        hashtags = [match.group(1).lower() for match in re.finditer(r"#([\w\u0600-\u06ff]+)", content)]
-        for tag in hashtags:
+        for tag in self._extract_hashtags(content):
             if tag not in tags:
                 tags.append(tag)
         return tags[:6]
@@ -508,12 +501,12 @@ class OfficialFeedService:
         path = urlparse(post_url).path.lower().strip("/")
         return path
 
-    def _enrich_post(self, post: OfficialFeedPost) -> OfficialFeedPost | None:
+    def _enrich_post(self, post: OfficialFeedPost, *, nlp_result: dict[str, object] | None = None) -> OfficialFeedPost | None:
         if not self._is_lebanon_relevant(post.content):
             return None
 
-        category = self._infer_category(post.content)
-        keywords = self._extract_keywords(post.content)
+        category = self._infer_category(post.content, nlp_result=nlp_result)
+        keywords = self._extract_keywords(post.content, nlp_result=nlp_result)
         if not keywords:
             return None
 
@@ -537,9 +530,9 @@ class OfficialFeedService:
             region=region,
             location_name=location_name,
             location={"lat": lat, "lng": lng},
-            risk_score=self._risk_score(severity, keywords),
+            risk_score=self._risk_score(severity, keywords, nlp_result=nlp_result),
             keywords=keywords,
-            signal_tags=self._merge_signal_tags(post.signal_tags, keywords),
+            signal_tags=self._build_signal_tags(post.content, keywords),
         )
 
     def _is_lebanon_relevant(self, content: str) -> bool:
@@ -562,7 +555,10 @@ class OfficialFeedService:
             return region, location_name
         return "Beirut", "Lebanon"
 
-    def _infer_category(self, content: str) -> str:
+    def _infer_category(self, content: str, *, nlp_result: dict[str, object] | None = None) -> str:
+        candidate = str((nlp_result or {}).get("category", "")).strip().lower().replace(" ", "_")
+        if candidate in {"violence", "protest", "natural_disaster", "infrastructure", "health", "terrorism", "cyber", "other"}:
+            return candidate
         lowered = content.lower()
         for category, keywords in CATEGORY_KEYWORDS:
             if any(keyword in lowered for keyword in keywords):
@@ -577,25 +573,64 @@ class OfficialFeedService:
             return "high"
         return "medium"
 
-    def _extract_keywords(self, content: str) -> list[str]:
+    def _extract_keywords(self, content: str, *, nlp_result: dict[str, object] | None = None) -> list[str]:
         lowered = content.lower()
         keywords: list[str] = []
+        for keyword in (nlp_result or {}).get("keywords", []):
+            normalized_keyword = str(keyword).strip().lower()
+            if normalized_keyword and normalized_keyword not in keywords:
+                keywords.append(normalized_keyword)
         for _, category_keywords in CATEGORY_KEYWORDS:
             for keyword in category_keywords:
                 if keyword in lowered and keyword not in keywords:
                     keywords.append(keyword)
         return keywords[:8]
 
-    def _merge_signal_tags(self, signal_tags: list[str], keywords: list[str]) -> list[str]:
+    def _build_signal_tags(self, content: str, keywords: list[str], matched_keywords: list[str] | None = None) -> list[str]:
         merged: list[str] = []
-        for tag in [*signal_tags, *keywords]:
+        for tag in [*(matched_keywords or []), *self._extract_tags(content), *keywords]:
             if tag not in merged:
                 merged.append(tag)
         return merged[:8]
 
-    def _risk_score(self, severity: str, keywords: list[str]) -> float:
+    def _apply_match_metadata(self, post: OfficialFeedPost, matched_keywords: list[str]) -> OfficialFeedPost:
+        return replace(
+            post,
+            matched_keywords=matched_keywords,
+            primary_keyword=matched_keywords[0] if matched_keywords else None,
+            signal_tags=self._merge_matched_signal_tags(post.signal_tags, matched_keywords, post.content),
+        )
+
+    def _apply_keyword_filter(self, posts: list[OfficialFeedPost], matcher: KeywordMatcher) -> list[OfficialFeedPost]:
+        if not matcher.is_enabled:
+            return posts
+
+        filtered_posts: list[OfficialFeedPost] = []
+        for post in posts:
+            match_result = matcher.match_text(post.content)
+            if not match_result.has_match:
+                continue
+            filtered_posts.append(self._apply_match_metadata(post, match_result.matched_keywords))
+        return filtered_posts
+
+    def _risk_score(self, severity: str, keywords: list[str], *, nlp_result: dict[str, object] | None = None) -> float:
         base = {"medium": 58.0, "high": 76.0, "critical": 90.0}.get(severity, 52.0)
-        return min(100.0, round(base + len(keywords) * 1.5, 1))
+        keyword_score = float((nlp_result or {}).get("keyword_score", 0.0) or 0.0)
+        return min(100.0, round(base + len(keywords) * 1.5 + min(keyword_score, 12.0) * 0.35, 1))
+
+    def _initials_for_name(self, value: str) -> str:
+        initials = "".join(part[:1].upper() for part in value.split() if part)
+        return initials[:2] or "TG"
+
+    def _merge_matched_signal_tags(self, signal_tags: list[str], matched_keywords: list[str], content: str) -> list[str]:
+        merged: list[str] = []
+        for tag in [*matched_keywords, *signal_tags, *self._extract_hashtags(content)]:
+            if tag not in merged:
+                merged.append(tag)
+        return merged[:8]
+
+    def _extract_hashtags(self, content: str) -> list[str]:
+        return [match.group(1).lower() for match in re.finditer(r"#([\w\u0600-\u06ff]+)", content)]
 
 
 official_feed_service = OfficialFeedService()
