@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -17,11 +19,31 @@ from app.services.nlp_pipeline import nlp_pipeline
 from app.services.websocket_manager import websocket_manager
 from app.workers.kafka_consumer import kafka_consumer
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
+
+_news_refresh_task: asyncio.Task | None = None
+
+
+async def _news_refresh_loop(interval_seconds: int = 300) -> None:
+    """Background loop: fetch live news every `interval_seconds` (default 5 min)."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            result = await live_news_service.sync_current_incidents()
+            logger.info(
+                "Live news refresh: fetched=%d inserted=%d updated=%d",
+                result["fetched"],
+                result["inserted"],
+                result["updated"],
+            )
+        except Exception as exc:
+            logger.warning("Live news refresh error (will retry): %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _news_refresh_task
     # Initialize storage
     local_store.initialize()
     # Connect databases
@@ -33,13 +55,25 @@ async def lifespan(app: FastAPI):
     await websocket_manager.start()
     # Initialize NLP pipeline (loads models)
     await nlp_pipeline.initialize()
-    # Populate dashboard state with current live incidents in postgres mode.
-    if settings.storage_mode == "postgres":
-        await live_news_service.sync_current_incidents()
+    # Fetch live news on startup (all modes) so dashboard and chatbot have real data immediately
+    try:
+        result = await live_news_service.sync_current_incidents()
+        logger.info(
+            "Startup live news: fetched=%d inserted=%d updated=%d",
+            result["fetched"],
+            result["inserted"],
+            result["updated"],
+        )
+    except Exception as exc:
+        logger.warning("Startup live news fetch failed (continuing): %s", exc)
+    # Start background news refresh loop (every 5 minutes, independent of Celery)
+    _news_refresh_task = asyncio.create_task(_news_refresh_loop(interval_seconds=300))
     # Start Kafka consumer
     await kafka_consumer.start()
     yield
     # Shutdown
+    if _news_refresh_task:
+        _news_refresh_task.cancel()
     await kafka_consumer.stop()
     await websocket_manager.stop()
     await postgres_client.disconnect()
