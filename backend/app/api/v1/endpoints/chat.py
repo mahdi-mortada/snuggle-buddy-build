@@ -87,8 +87,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
 
     # Fetch live data from local store
-    live_incidents = local_store.list_incidents(limit=20)
-    live_alerts = local_store.list_alerts(limit=10)
+    live_incidents = local_store.list_incidents()[:20]
+    live_alerts = local_store.list_alerts()[:10]
     live_risk = local_store.list_risk_scores()
 
     system_prompt = _build_system_prompt(live_incidents, live_alerts, live_risk)
