@@ -581,6 +581,7 @@ These were NOT part of the original build and have not been started:
 - **Arabic spaCy model** — `xx_ent_wiki_sm` is multilingual; a proper Arabic NER model (`ar_core_news_lg` if available) would improve accuracy
 - **Frontend Settings page** — currently a stub; could expose Redis threshold/weight tuning UI
 - **Map district layer** — IncidentMap currently shows only governorate polygons; could add district-level detail on zoom
+- **Persistent live news → PostgreSQL** — live news is currently stored in memory only; writing it to PostgreSQL automatically on every refresh would make data fully persistent across restarts
 
 ---
 
@@ -650,4 +651,65 @@ These were NOT part of the original build and have not been started:
 - `src/pages/Alerts.tsx` — Web Audio sound alerts + sound toggle
 - `src/components/layout/Header.tsx` — NotificationCenter replaces static bell
 - `src/components/layout/DashboardLayout.tsx` — passes alerts + acknowledgeAlert to Header
+
+---
+
+## 16. Post-Build Fixes (April 2026)
+
+These changes were made after all 8 phases were complete, during live testing.
+
+### Chat Endpoint (`backend/app/api/v1/endpoints/chat.py`)
+
+**Problem:** In `STORAGE_MODE=postgres`, `local_store` starts empty (seed data not loaded). The chat endpoint called `local_store.list_incidents()` → got 0 results → Claude had no incident data.
+
+**Fix:** When `local_store` is empty, fall back to `live_news_service._cache` which is always populated at startup:
+```python
+store_incidents = local_store.list_incidents()
+if not store_incidents:
+    from app.services.live_news import live_news_service
+    store_incidents = live_news_service._cache or []
+```
+
+**Chatbot system prompt also rewritten** to be a comprehensive Lebanon intelligence analyst:
+- Current political leadership: President Joseph Aoun (elected Jan 9, 2025), PM Nawaf Salam, Speaker Nabih Berri, Hassan Nasrallah killed Sept 27, 2024
+- Rule 1: Answer ANY Lebanon question freely — no topic restrictions
+- Rule 3: Always use exact timestamps from incident data — never claim dates are unavailable
+- Data priority: frontend context → live news cache → local store
+
+### Live News Background Refresh (`backend/app/main.py`)
+
+**Problem:** `live_news_service.sync_current_incidents()` was only called at startup in `STORAGE_MODE=postgres`. In all other modes, the in-memory cache never refreshed.
+
+**Fix:**
+1. Startup fetch now runs in **all modes** (removed `if settings.storage_mode == "postgres":` guard)
+2. Added `_news_refresh_loop()` — an `asyncio` background task refreshing every 5 minutes
+
+### Alembic Migration Fix (`backend/alembic/versions/001_initial_schema.py`)
+
+Fixed invalid SQL: `DROP COLUMN IF EXISTS regions.geometry` → `ALTER TABLE regions DROP COLUMN IF EXISTS geometry`
+
+### ORM Fix (`backend/app/db/orm.py`)
+
+`metadata` is a reserved attribute in SQLAlchemy's Declarative API. Renamed to `extra_metadata` with a column alias:
+```python
+extra_metadata = Column("metadata", JSONB, default=dict)
+```
+
+### PostgreSQL Seed Script (`backend/seed_pg.py`)
+
+One-time utility script to populate the PostgreSQL `incidents` table from the live news cache. Run inside the container:
+```bash
+docker-compose exec backend python /app/seed_pg.py
+```
+
+### DBeaver Database Access
+
+PostgreSQL is accessible from the host at `localhost:5433` (Docker maps 5433 → 5432 internally).
+- Username: `postgres` / Password: `postgres` / Database: `crisisshield`
+- Run `alembic upgrade head` inside the backend container before connecting to create tables
+- Tables: `incidents`, `alerts`, `risk_scores`, `regions`, `users`
+
+### Git Workflow Rule
+
+**CRITICAL:** Never push directly to `main`. Always create a feature branch, push that branch, then open a PR on GitHub for review and merge. This rule applies to all future changes.
 - `src/pages/Dashboard.tsx` — passes acknowledgeAlert to DashboardLayout

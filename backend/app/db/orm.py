@@ -106,7 +106,7 @@ class IncidentORM(Base):
     analyst_notes = Column(Text)
     # Source info (stored as JSONB)
     source_info = Column(JSONB, default=dict)
-    metadata = Column(JSONB, default=dict)
+    extra_metadata = Column("metadata", JSONB, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
