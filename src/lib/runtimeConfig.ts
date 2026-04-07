@@ -19,9 +19,11 @@ export const runtimeConfig = {
   backendDevPassword,
   hasSupabaseConfig: Boolean(supabaseUrl && supabasePublishableKey),
   hasBackendApi: Boolean(backendApiBaseUrl),
-  hasChatBackend: Boolean(localApiBaseUrl || (supabaseUrl && supabasePublishableKey)),
+  hasChatBackend: Boolean(backendApiBaseUrl || localApiBaseUrl || (supabaseUrl && supabasePublishableKey)),
   newsUrl: supabaseUrl ? `${supabaseUrl}/functions/v1/fetch-news` : "",
-  chatUrl: localApiBaseUrl
-    ? `${localApiBaseUrl}/crisis-chat`
-    : (supabaseUrl ? `${supabaseUrl}/functions/v1/crisis-chat` : ""),
+  chatUrl: backendApiBaseUrl
+    ? `${backendApiBaseUrl}/api/v1/chat`
+    : localApiBaseUrl
+      ? `${localApiBaseUrl}/crisis-chat`
+      : (supabaseUrl ? `${supabaseUrl}/functions/v1/crisis-chat` : ""),
 };
