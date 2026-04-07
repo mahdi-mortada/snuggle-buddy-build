@@ -24,6 +24,14 @@ backend/.pytest_cache/
 node-portable.zip
 *.local
 
+# Runtime / generated files
+backend/data/local_state.json
+backend/backend/data/local_state.json
+backend/celerybeat-schedule
+backend/.tmp-py/
+.tmp/
+ml-pipeline/models/*.pkl
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
