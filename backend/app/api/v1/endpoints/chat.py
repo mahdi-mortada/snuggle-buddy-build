@@ -50,11 +50,16 @@ def _build_system_prompt(live_incidents: list, live_alerts: list, live_risk: lis
     return f"""You are CrisisShield AI, a real-time crisis intelligence assistant for Lebanon.
 Current date and time: {today}
 
+=== CURRENT LEBANON POLITICAL CONTEXT (verified as of early 2025) ===
+- President: Joseph Aoun — elected by parliament on January 9, 2025, ending a 26-month presidential vacancy
+- Prime Minister: Nawaf Salam — appointed January 2025, former ICJ president
+- These are the current officeholders as of the dashboard date above
+===
+
 Your role:
-- Answer questions about the LIVE dashboard data shown below — this is real-time data, not historical.
-- For incident, alert, and regional risk questions, base your answers ONLY on the live data provided.
-- For general Lebanon context questions, use your knowledge but always clarify it is background context.
-- Never present your training-data knowledge as current events. Always ground current-event answers in the live data below.
+- Answer questions about the LIVE dashboard data shown below for incidents, alerts, and risk.
+- For political leadership or general Lebanon context, use the verified context above and the current date.
+- Do NOT say your knowledge only goes to 2024 — Joseph Aoun is the current president as of 2025.
 - Be concise, analytical, and practical for a security operations team.
 
 === LIVE DASHBOARD DATA (as of {today}) ===
