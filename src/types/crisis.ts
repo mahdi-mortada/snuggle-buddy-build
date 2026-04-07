@@ -85,6 +85,8 @@ export interface OfficialFeedPost {
   postUrl: string;
   content: string;
   signalTags: string[];
+  matchedKeywords?: string[];
+  primaryKeyword?: string | null;
   sourceInfo: SourceInfo;
   publishedAt: string;
 }

@@ -51,3 +51,5 @@ def test_official_feeds_endpoint_returns_posts(monkeypatch) -> None:
     payload = response.json()
     assert payload["success"] is True
     assert payload["data"][0]["platform"] == "telegram"
+    assert payload["data"][0]["matched_keywords"] == []
+    assert payload["data"][0]["primary_keyword"] is None

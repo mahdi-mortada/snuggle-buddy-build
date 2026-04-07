@@ -132,6 +132,21 @@ export function LiveIncidentFeed({ items, isLoading = false, error = null, onRet
                     </div>
                     <h4 className="text-sm font-medium text-foreground truncate">{item.title}</h4>
                     <p className="text-[11px] text-muted-foreground/80 line-clamp-3 mt-0.5">{item.description}</p>
+                    {feed.primaryKeyword ? (
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                        <span className="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+                          Primary match: {feed.primaryKeyword}
+                        </span>
+                        {(feed.matchedKeywords ?? []).slice(0, 3).map((keyword) => (
+                          <span
+                            key={`${feed.id}-kw-${keyword}`}
+                            className="rounded-full border border-border/40 bg-accent/40 px-2 py-0.5 text-[10px] text-muted-foreground"
+                          >
+                            {keyword}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="text-[11px] text-muted-foreground">{item.source}</span>
                       <span className="text-muted-foreground/30">|</span>

@@ -73,7 +73,12 @@ export default function Dashboard() {
   }, [loadMergedFeedSources]);
 
   const mergedFeed = useMemo<LiveFeedItem[]>(() => {
-    const normalizedIncidents: LiveFeedItem[] = incidents.map((incident) => ({
+    // Prefer the explicit live-incidents endpoint when it returns data, but
+    // fall back to the dashboard snapshot so the feed does not appear empty
+    // just because one upstream source is temporarily sparse.
+    const incidentSource = incidents.length > 0 ? incidents : dashboardIncidents;
+
+    const normalizedIncidents: LiveFeedItem[] = incidentSource.map((incident) => ({
       id: `incident-${incident.id}`,
       type: 'incident',
       title: incident.title,
@@ -94,7 +99,7 @@ export default function Dashboard() {
     }));
 
     return [...normalizedIncidents, ...normalizedTelegram].sort((left, right) => right.timestamp - left.timestamp);
-  }, [incidents, officialFeeds]);
+  }, [incidents, officialFeeds, dashboardIncidents]);
 
   const handleRetryMergedFeed = useCallback(() => {
     void loadMergedFeedSources(true);

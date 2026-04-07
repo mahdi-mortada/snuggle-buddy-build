@@ -1,12 +1,23 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { OfficialFeedFilterPanel } from '@/components/official-feeds/OfficialFeedFilterPanelV2';
 import { CredibilityBadge, SourceTag } from '@/components/shared/SourceBadge';
+import { Badge } from '@/components/ui/badge';
 import { useLiveData } from '@/hooks/useLiveData';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { openSourceUrl, resolveSourceUrl } from '@/lib/sourceLink';
+import { buildLebanonLocationIndex, type LebanonLocationIndex, type OSMRawData } from '@/lib/lebanonLocations';
+import {
+  buildRegionOptions,
+  buildSourceOptions,
+  filterOfficialFeedPosts,
+  groupOfficialFeedPostsByPublisher,
+  prepareOfficialFeedPosts,
+} from '@/lib/officialFeedFilters';
 import { fetchBackendOfficialFeedPosts } from '@/services/backendApi';
 import type { OfficialFeedPost } from '@/types/crisis';
 import { formatDistanceToNow } from 'date-fns';
 import { ExternalLink, RefreshCw, Radio, Send } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 function platformLabel(platform: OfficialFeedPost['platform']): string {
@@ -16,8 +27,13 @@ function platformLabel(platform: OfficialFeedPost['platform']): string {
 export default function OfficialFeeds() {
   const { incidents, alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
   const [posts, setPosts] = useState<OfficialFeedPost[]>([]);
+  const [locationIndex, setLocationIndex] = useState<LebanonLocationIndex | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [selectedRegionIds, setSelectedRegionIds] = useState<string[]>([]);
+  const [keywordInput, setKeywordInput] = useState('');
+  const debouncedKeyword = useDebouncedValue(keywordInput, 250);
 
   const loadPosts = async (showToast = false) => {
     setIsLoading(true);
@@ -50,14 +66,55 @@ export default function OfficialFeeds() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const groupedPosts = posts.reduce<Record<string, OfficialFeedPost[]>>((groups, post) => {
-    const key = post.publisherName;
-    groups[key] = groups[key] ? [...groups[key], post] : [post];
-    return groups;
-  }, {});
+  useEffect(() => {
+    let isMounted = true;
+
+    fetch('/maps/osm-export.geojson')
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Unable to load Lebanon regions (${response.status})`);
+        }
+        return response.json() as Promise<OSMRawData>;
+      })
+      .then((raw) => {
+        if (!isMounted) return;
+        setLocationIndex(buildLebanonLocationIndex(raw));
+      })
+      .catch((geoJsonError) => {
+        console.error('Unable to build Lebanon location index:', geoJsonError);
+        if (!isMounted) return;
+        setLocationIndex(null);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Keep the raw backend payload as the single source of truth and derive
+  // searchable metadata from it instead of duplicating another feed store.
+  const preparedPosts = useMemo(() => prepareOfficialFeedPosts(posts, locationIndex), [posts, locationIndex]);
+  const sourceOptions = useMemo(() => buildSourceOptions(posts), [posts]);
+  const regionOptions = useMemo(() => buildRegionOptions(preparedPosts), [preparedPosts]);
+  const filteredPosts = useMemo(
+    () =>
+      filterOfficialFeedPosts(preparedPosts, {
+        selectedSources,
+        selectedRegionIds,
+        keyword: debouncedKeyword,
+      }),
+    [preparedPosts, selectedSources, selectedRegionIds, debouncedKeyword],
+  );
+  const groupedPosts = useMemo(() => groupOfficialFeedPostsByPublisher(filteredPosts), [filteredPosts]);
 
   const publishers = Object.keys(groupedPosts).length;
   const telegramCount = posts.filter((post) => post.platform === 'telegram').length;
+  const filteredCount = filteredPosts.length;
+  const clearFilters = () => {
+    setSelectedSources([]);
+    setSelectedRegionIds([]);
+    setKeywordInput('');
+  };
 
   return (
     <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
@@ -105,11 +162,32 @@ export default function OfficialFeeds() {
           </div>
         </div>
 
+        <OfficialFeedFilterPanel
+          sourceOptions={sourceOptions}
+          regionOptions={regionOptions}
+          selectedSources={selectedSources}
+          selectedRegionIds={selectedRegionIds}
+          keyword={keywordInput}
+          totalResults={posts.length}
+          filteredResults={filteredCount}
+          regionOptionsReady={locationIndex !== null}
+          onSourceChange={setSelectedSources}
+          onRegionChange={setSelectedRegionIds}
+          onKeywordChange={setKeywordInput}
+          onClearFilters={clearFilters}
+        />
+
         {error ? <div className="glass-panel border border-critical/30 p-5 text-sm text-critical">{error}</div> : null}
 
         {posts.length === 0 && !isLoading && !error ? (
           <div className="glass-panel border border-border/50 p-6 text-sm text-muted-foreground">
             No official outlet posts are available yet. Try refreshing in a moment.
+          </div>
+        ) : null}
+
+        {posts.length > 0 && filteredCount === 0 && !isLoading && !error ? (
+          <div className="glass-panel border border-border/50 p-6 text-sm text-muted-foreground">
+            No posts match the current filters. Try changing the source, Lebanon location, or keyword criteria.
           </div>
         ) : null}
 
@@ -122,7 +200,8 @@ export default function OfficialFeeds() {
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                {publisherPosts.map((post) => {
+                {publisherPosts.map((preparedPost) => {
+                  const { post, matchedRegions } = preparedPost;
                   const sourceUrl = resolveSourceUrl(post);
 
                   return (
@@ -161,7 +240,47 @@ export default function OfficialFeeds() {
                         ) : null}
                       </div>
 
-                      <p className="mt-4 whitespace-pre-line text-sm leading-6 text-foreground/85">{post.content}</p>
+                      <p className="mt-4 whitespace-pre-line text-sm leading-6 text-foreground/85">
+                        {renderHighlightedText(post.content, debouncedKeyword)}
+                      </p>
+
+                      {matchedRegions.length > 0 ? (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {matchedRegions.slice(0, 4).map((region) => (
+                            <Badge
+                              key={`${post.id}-region-${region.id}`}
+                              variant="outline"
+                              className="border-primary/20 bg-primary/5 text-[11px] text-primary/90"
+                            >
+                              {region.label}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {post.primaryKeyword ? (
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
+                            Primary match: {post.primaryKeyword}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {post.matchedKeywords?.length ?? 0} configured keyword matches
+                          </span>
+                        </div>
+                      ) : null}
+
+                      {post.matchedKeywords && post.matchedKeywords.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {post.matchedKeywords.map((keyword) => (
+                            <span
+                              key={`${post.id}-matched-${keyword}`}
+                              className="rounded-full border border-primary/25 bg-primary/5 px-2 py-1 text-[11px] text-primary/90"
+                            >
+                              match:{keyword}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
 
                       {post.signalTags.length > 0 ? (
                         <div className="mt-4 flex flex-wrap gap-2">
@@ -182,4 +301,27 @@ export default function OfficialFeeds() {
       </div>
     </DashboardLayout>
   );
+}
+
+function renderHighlightedText(text: string, keyword: string): ReactNode {
+  const trimmedKeyword = keyword.trim();
+  if (!trimmedKeyword) {
+    return text;
+  }
+
+  const matcher = new RegExp(`(${escapeRegExp(trimmedKeyword)})`, 'gi');
+  return text.split(matcher).map((part, index) => {
+    if (part.toLowerCase() === trimmedKeyword.toLowerCase()) {
+      return (
+        <mark key={`${part}-${index}`} className="rounded bg-warning/20 px-1 text-foreground">
+          {part}
+        </mark>
+      );
+    }
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

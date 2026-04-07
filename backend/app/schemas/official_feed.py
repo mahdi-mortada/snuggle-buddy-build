@@ -17,6 +17,8 @@ class OfficialFeedPostOut(BaseModel):
     post_url: str
     content: str
     signal_tags: list[str] = Field(default_factory=list)
+    matched_keywords: list[str] = Field(default_factory=list)
+    primary_keyword: str | None = None
     source_info: SourceInfoOut
     published_at: datetime
 
