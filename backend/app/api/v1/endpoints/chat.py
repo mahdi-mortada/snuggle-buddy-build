@@ -200,11 +200,20 @@ async def chat(request: ChatRequest) -> ChatResponse:
     incidents_from_context: list[dict] = ctx.get("incidents") or []
     alerts_from_context: list[dict] = ctx.get("alerts") or []
     last_updated: str = ctx.get("lastUpdated") or ""
+    logger.info("Chat: %d incidents from frontend context, %d alerts", len(incidents_from_context), len(alerts_from_context))
 
-    # Fetch store data for risk scores and as fallback for incidents/alerts
+    # Fetch store data for risk scores and as fallback for incidents/alerts.
+    # In postgres mode local_store may be empty — supplement with live news cache.
     store_incidents = local_store.list_incidents()
+    if not store_incidents:
+        try:
+            from app.services.live_news import live_news_service
+            store_incidents = live_news_service._cache or []
+        except Exception:
+            store_incidents = []
     store_alerts = local_store.list_alerts()
     store_risk = local_store.list_risk_scores()
+    logger.info("Chat fallback: %d store incidents, %d risk scores", len(store_incidents), len(store_risk))
 
     system_prompt = _build_system_prompt(
         incidents_from_context=incidents_from_context,

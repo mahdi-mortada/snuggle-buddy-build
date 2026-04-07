@@ -47,7 +47,7 @@ def upgrade() -> None:
     op.execute(
         "ALTER TABLE regions ADD COLUMN IF NOT EXISTS centroid geography(POINT, 4326)"
     )
-    op.execute("DROP COLUMN IF EXISTS regions.geometry")
+    op.execute("ALTER TABLE regions DROP COLUMN IF EXISTS geometry")
     op.execute("CREATE INDEX idx_regions_geom ON regions USING GIST(geom)")
 
     # ── users ────────────────────────────────────────────────────────────────
