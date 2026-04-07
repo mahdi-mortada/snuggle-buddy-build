@@ -5,10 +5,7 @@ const localApiBaseUrl =
 const backendApiBaseUrl =
   (import.meta.env.VITE_BACKEND_URL ?? "").trim() || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
 const backendWsUrl =
-  (import.meta.env.VITE_BACKEND_WS_URL ?? "").trim() ||
-  (backendApiBaseUrl
-    ? `${backendApiBaseUrl.replace(/^https/, "wss").replace(/^http/, "ws")}/ws/live-feed`
-    : "");
+  (import.meta.env.VITE_BACKEND_WS_URL ?? "").trim() || (backendApiBaseUrl ? `${backendApiBaseUrl}/ws/live-feed` : "");
 const backendDevEmail = (import.meta.env.VITE_BACKEND_DEV_EMAIL ?? "").trim() || "admin@crisisshield.dev";
 const backendDevPassword = (import.meta.env.VITE_BACKEND_DEV_PASSWORD ?? "").trim() || "admin12345";
 
