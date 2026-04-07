@@ -17,7 +17,7 @@ export function TrendCharts({ data: rawData }: { data: TrendDataPoint[] }) {
   }));
 
   return (
-    <div className="glass-panel p-4 h-full flex flex-col">
+    <div className="glass-panel p-4 flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-foreground">Trend Analysis</h3>
         <div className="flex items-center gap-2">
@@ -36,10 +36,10 @@ export function TrendCharts({ data: rawData }: { data: TrendDataPoint[] }) {
           </button>
         </div>
       </div>
-      <div className="flex-1 min-h-0 grid grid-rows-2 gap-4">
+      <div className="flex flex-col gap-4">
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Incident Volume & Risk Score</p>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={155}>
             <AreaChart data={data}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis dataKey="time" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
@@ -52,7 +52,7 @@ export function TrendCharts({ data: rawData }: { data: TrendDataPoint[] }) {
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Sentiment Trend</p>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={155}>
             <LineChart data={data}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis dataKey="time" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
