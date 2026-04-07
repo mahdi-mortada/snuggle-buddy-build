@@ -29,56 +29,160 @@ class ChatResponse(BaseModel):
     model: str = "claude-haiku-4-5-20251001"
 
 
-def _build_system_prompt(live_incidents: list, live_alerts: list, live_risk: list) -> str:
+def _fmt_incident_from_dict(i: dict) -> str:
+    """Format a camelCase incident dict (from frontend context)."""
+    severity = (i.get("severity") or "unknown").upper()
+    title = i.get("title") or "Untitled"
+    region = i.get("region") or "Unknown"
+    risk = i.get("riskScore") or i.get("risk_score") or 0
+    source_info = i.get("sourceInfo") or i.get("source_info") or {}
+    source = source_info.get("name") if isinstance(source_info, dict) else "Unknown"
+    created_at = i.get("createdAt") or i.get("created_at") or ""
+    ts = ""
+    if created_at:
+        try:
+            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            ts = dt.strftime("%Y-%m-%d %H:%M UTC")
+        except Exception:
+            ts = str(created_at)[:19]
+    return f"- [{severity}] {title} | Region: {region} | Risk: {float(risk):.1f} | Source: {source} | Time: {ts or 'N/A'}"
+
+
+def _fmt_incident_from_record(i: Any) -> str:
+    """Format a local_store IncidentRecord object."""
+    severity = (getattr(i, "severity", "unknown") or "unknown").upper()
+    title = getattr(i, "title", "Untitled") or "Untitled"
+    region = getattr(i, "region", "Unknown") or "Unknown"
+    risk = getattr(i, "risk_score", 0) or 0
+    source_info = getattr(i, "source_info", {})
+    if isinstance(source_info, dict):
+        source = source_info.get("name", "Unknown")
+    else:
+        source = getattr(source_info, "name", "Unknown")
+    created_at = getattr(i, "created_at", None)
+    ts = ""
+    if created_at:
+        try:
+            if isinstance(created_at, str):
+                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            else:
+                dt = created_at
+            ts = dt.strftime("%Y-%m-%d %H:%M UTC")
+        except Exception:
+            ts = str(created_at)[:19]
+    return f"- [{severity}] {title} | Region: {region} | Risk: {float(risk):.1f} | Source: {source} | Time: {ts or 'N/A'}"
+
+
+def _sort_key_incident_dict(i: dict) -> str:
+    return i.get("createdAt") or i.get("created_at") or ""
+
+
+def _sort_key_incident_record(i: Any) -> str:
+    v = getattr(i, "created_at", None)
+    return str(v) if v else ""
+
+
+def _build_system_prompt(
+    incidents_from_context: list[dict],
+    alerts_from_context: list[dict],
+    store_incidents: list,
+    store_alerts: list,
+    store_risk: list,
+    last_updated: str,
+) -> str:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    incident_lines = "\n".join(
-        f"- [{i.severity.upper()}] {i.title} | Region: {i.region} | Risk: {i.risk_score:.1f} | Source: {i.source_info.get('name', 'unknown') if isinstance(i.source_info, dict) else getattr(i.source_info, 'name', 'unknown')}"
-        for i in live_incidents[:15]
-    ) or "No incidents currently loaded."
+    # ── Incidents: prefer frontend context (matches dashboard exactly) ──
+    if incidents_from_context:
+        sorted_incidents = sorted(incidents_from_context, key=_sort_key_incident_dict, reverse=True)
+        incident_lines = "\n".join(_fmt_incident_from_dict(i) for i in sorted_incidents[:20])
+        incident_source_note = f"(from live dashboard as of {last_updated or today})"
+    else:
+        sorted_store = sorted(store_incidents, key=_sort_key_incident_record, reverse=True)
+        incident_lines = "\n".join(_fmt_incident_from_record(i) for i in sorted_store[:20])
+        incident_source_note = "(from backend store)"
 
-    alert_lines = "\n".join(
-        f"- [{a.severity.upper()}] {a.title} | Region: {a.region}"
-        for a in live_alerts[:10]
-    ) or "No active alerts."
+    incident_lines = incident_lines or "No incidents currently loaded."
 
+    # ── Alerts ──
+    if alerts_from_context:
+        alert_lines = "\n".join(
+            f"- [{(a.get('severity') or 'unknown').upper()}] {a.get('title', 'Alert')} | Region: {a.get('region', 'Unknown')}"
+            for a in alerts_from_context[:10]
+        )
+    else:
+        alert_lines = "\n".join(
+            f"- [{(getattr(a, 'severity', 'unknown') or 'unknown').upper()}] {getattr(a, 'title', 'Alert')} | Region: {getattr(a, 'region', 'Unknown')}"
+            for a in store_alerts[:10]
+        )
+    alert_lines = alert_lines or "No active alerts."
+
+    # ── Risk scores ──
     risk_lines = "\n".join(
         f"- {r.region}: {r.overall_score:.1f}/100"
-        for r in sorted(live_risk, key=lambda x: x.overall_score, reverse=True)[:8]
+        for r in sorted(store_risk, key=lambda x: x.overall_score, reverse=True)[:8]
     ) or "No risk scores available."
 
-    return f"""You are CrisisShield AI, a real-time crisis intelligence assistant for Lebanon.
+    return f"""You are CrisisShield AI — an elite crisis intelligence analyst embedded in the CrisisShield real-time security operations platform for Lebanon. You are the primary AI advisor to a professional security operations team monitoring Lebanese territory 24/7.
+
 Current date and time: {today}
 
-=== CURRENT LEBANON POLITICAL CONTEXT (verified as of early 2025) ===
-- President: Joseph Aoun — elected by parliament on January 9, 2025, ending a 26-month presidential vacancy
-- Prime Minister: Nawaf Salam — appointed January 2025, former ICJ president
-- These are the current officeholders as of the dashboard date above
-===
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IDENTITY & EXPERTISE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You combine the knowledge of:
+- A senior Lebanon geopolitical analyst with 20+ years of field experience
+- A military intelligence officer specialising in Levant security dynamics
+- A real-time crisis operations coordinator with access to live dashboard feeds
 
-Your role:
-- Answer questions about the LIVE dashboard data shown below for incidents, alerts, and risk.
-- For political leadership or general Lebanon context, use the verified context above and the current date.
-- Do NOT say your knowledge only goes to 2024 — Joseph Aoun is the current president as of 2025.
-- Be concise, analytical, and practical for a security operations team.
+You have deep, encyclopedic knowledge of:
+• Lebanese political system: confessionalism, parliament, cabinet formation, constitutional rules
+• All major political parties and movements: Hezbollah, Amal, Future Movement, Lebanese Forces, Kataeb, FPM, PSP, Marada, LF, and all others
+• Armed factions and their military structure, weapons, territorial control, and alliances
+• Key figures — past and present: politicians, militia leaders, religious authorities, military commanders
+• Lebanon's sectarian geography: which regions are controlled or influenced by which factions
+• Regional dynamics: Israel-Lebanon conflict, Syria spillover, Palestinian factions in Lebanon, Iranian influence, Saudi influence, US/French involvement
+• Lebanese Armed Forces (LAF), Internal Security Forces (ISF), and their capabilities and limitations
+• Historical events: Civil War (1975–1990), Israeli occupations, 2006 war, Beirut port explosion (2020), economic collapse, 2024 Israeli military operations
 
-=== LIVE DASHBOARD DATA (as of {today}) ===
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CURRENT POLITICAL LEADERSHIP (as of {today})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• President: Joseph Aoun — elected January 9, 2025 (ended 26-month vacancy after Michel Aoun's term)
+• Prime Minister: Nawaf Salam — appointed January 2025, former president of the International Court of Justice
+• Hezbollah Secretary-General: Hassan Nasrallah was killed September 27, 2024. Leadership succession ongoing.
+• Speaker of Parliament: Nabih Berri (Amal Movement, long-serving since 1992)
 
-CURRENT INCIDENTS (most recent):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LIVE DASHBOARD DATA {incident_source_note}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACTIVE INCIDENTS (sorted newest first, each with exact timestamp):
 {incident_lines}
 
 ACTIVE ALERTS:
 {alert_lines}
 
-REGIONAL RISK SCORES (current):
+REGIONAL RISK SCORES (0–100):
 {risk_lines}
-=== END LIVE DATA ===
 
-When answering:
-- If the user asks about current incidents or alerts, use ONLY the live data above.
-- If the live data does not contain what the user asked for, say so clearly.
-- Do not invent or guess incident details not present in the live data.
-- Format responses in clear markdown with bullet points where helpful."""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RESPONSE RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. ANSWER FREELY — You answer any Lebanon-related question: people, factions, geography, history, military, politics, religion, economics, culture. Never refuse a Lebanon question.
+
+2. LIVE DATA PRIORITY — For questions about current incidents, alerts, or regional risk levels, anchor your answer in the live dashboard data above. The data above is the SAME data currently displayed on the user's dashboard screen.
+
+3. USE EXACT TIMESTAMPS — Every incident above has a "Time:" field with its exact timestamp. Always report these exact times when asked about when something happened. Never say you don't have dates — they are in the data above.
+
+4. KNOWLEDGE CONFIDENCE — Use your full training knowledge confidently. Do not say "my knowledge only goes to 2024." You know about Nasrallah's death (Sept 27, 2024), Aoun's election (Jan 9, 2025), and the 2024 Israeli military operations in Lebanon.
+
+5. INTELLIGENCE ANALYST TONE — Be direct, precise, and analytical. Lead with the key finding. Use structured markdown (headers, bullets, bold) for clarity. Avoid long preambles.
+
+6. OPERATIONAL RELEVANCE — Where appropriate, connect your answer to operational implications for security teams: threat levels, recommended monitoring areas, credibility of sources.
+
+7. UNCERTAINTY LABELLING — If something genuinely occurred after August 2025, state this clearly. Say: "I don't have confirmed information beyond August 2025 on this specific point."
+
+8. BREVITY — Keep answers concise and scannable. Use bullet points for lists. A good intelligence brief is short and actionable."""
 
 
 @router.post("", response_model=ChatResponse)
@@ -91,14 +195,27 @@ async def chat(request: ChatRequest) -> ChatResponse:
             model="none",
         )
 
-    # Fetch live data from local store
-    live_incidents = local_store.list_incidents()[:20]
-    live_alerts = local_store.list_alerts()[:10]
-    live_risk = local_store.list_risk_scores()
+    # Extract frontend live context (matches exactly what the dashboard shows)
+    ctx = request.context
+    incidents_from_context: list[dict] = ctx.get("incidents") or []
+    alerts_from_context: list[dict] = ctx.get("alerts") or []
+    last_updated: str = ctx.get("lastUpdated") or ""
 
-    system_prompt = _build_system_prompt(live_incidents, live_alerts, live_risk)
+    # Fetch store data for risk scores and as fallback for incidents/alerts
+    store_incidents = local_store.list_incidents()
+    store_alerts = local_store.list_alerts()
+    store_risk = local_store.list_risk_scores()
 
-    # Build message list for Claude (exclude system, just user/assistant turns)
+    system_prompt = _build_system_prompt(
+        incidents_from_context=incidents_from_context,
+        alerts_from_context=alerts_from_context,
+        store_incidents=store_incidents,
+        store_alerts=store_alerts,
+        store_risk=store_risk,
+        last_updated=last_updated,
+    )
+
+    # Build message list for Claude
     claude_messages = [
         {"role": m.role, "content": m.content}
         for m in request.messages
