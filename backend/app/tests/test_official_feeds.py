@@ -9,6 +9,9 @@ from app.services.official_feeds import OfficialFeedPost, official_feed_service
 def _build_post(content: str) -> OfficialFeedPost:
     return OfficialFeedPost(
         id="post-1",
+        source_id="source-1",
+        source_name="LBCI",
+        is_custom=False,
         platform="telegram",
         publisher_name="LBCI",
         account_label="LBCI News Wire",
@@ -89,6 +92,7 @@ def test_official_feeds_endpoint_returns_posts(monkeypatch) -> None:
     payload = response.json()
     assert payload["success"] is True
     assert payload["data"][0]["platform"] == "telegram"
+    assert payload["data"][0]["source_id"] == "source-1"
     assert payload["data"][0]["is_safety_relevant"] is True
     assert payload["data"][0]["category"] == "violence"
     assert payload["data"][0]["location_name"] == "Hula"

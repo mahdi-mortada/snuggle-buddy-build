@@ -124,7 +124,12 @@ class Settings(BaseSettings):
     live_news_limit: int = 25
     official_feeds_enabled: bool = True
     official_feed_limit: int = 24
+    official_feed_filter_keywords: str = ""
     official_feed_extra_channels_json: str = ""
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    telegram_session_string: str = ""
+    telegram_request_timeout_seconds: int = 15
 
     # ── Server ───────────────────────────────────────────────────────────────
     backend_host: str = "127.0.0.1"

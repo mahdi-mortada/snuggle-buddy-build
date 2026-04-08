@@ -7,6 +7,9 @@ from app.services.official_feeds import OfficialFeedPost, OfficialFeedService
 def _build_post(*, content: str) -> OfficialFeedPost:
     return OfficialFeedPost(
         id="post-1",
+        source_id="source-1",
+        source_name="LBCI",
+        is_custom=False,
         platform="telegram",
         publisher_name="LBCI",
         account_label="LBCI News Wire",
@@ -25,6 +28,14 @@ def _build_post(*, content: str) -> OfficialFeedPost:
             "verifiedBy": [],
         },
         published_at=datetime(2026, 3, 31, 8, 0, tzinfo=UTC),
+        is_safety_relevant=True,
+        category="other",
+        severity="medium",
+        region="Beirut",
+        location_name="Lebanon",
+        location={"lat": 33.8938, "lng": 35.5018},
+        risk_score=58.0,
+        keywords=[],
     )
 
 
