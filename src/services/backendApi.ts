@@ -102,6 +102,14 @@ type BackendOfficialFeedPost = {
   primary_keyword?: string | null;
   source_info: BackendSourceInfo;
   published_at: string;
+  category?: string;
+  severity?: string;
+  region?: string;
+  location?: { lat: number; lng: number };
+  location_name?: string;
+  risk_score?: number;
+  keywords?: string[];
+  is_safety_relevant?: boolean;
 };
 
 type BackendOfficialFeedSource = {
@@ -292,6 +300,14 @@ function mapOfficialFeedPost(post: BackendOfficialFeedPost): OfficialFeedPost {
     primaryKeyword: post.primary_keyword ?? null,
     sourceInfo: mapSourceInfo(post.source_info),
     publishedAt: post.published_at,
+    category: post.category ?? "other",
+    severity: (post.severity as OfficialFeedPost["severity"]) ?? "medium",
+    region: post.region ?? "Beirut",
+    location: post.location ?? { lat: 33.8938, lng: 35.5018 },
+    locationName: post.location_name ?? "Lebanon",
+    riskScore: post.risk_score ?? 0,
+    keywords: post.keywords ?? [],
+    isSafetyRelevant: post.is_safety_relevant ?? false,
   };
 }
 

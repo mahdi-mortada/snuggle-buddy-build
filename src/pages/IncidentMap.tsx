@@ -19,7 +19,7 @@ type LebanonGeoJson = GeoJSON.FeatureCollection<
   LebanonFeatureProperties
 >;
 
-type MarkerKind = 'fire' | 'conflict' | 'crime' | 'default';
+type MarkerKind = 'violence' | 'armed_conflict' | 'terrorism' | 'protest' | 'natural_disaster' | 'fire' | 'infrastructure' | 'health' | 'cyber' | 'drone' | 'crime' | 'default';
 
 type MarkerEvent = {
   id: string;
@@ -70,23 +70,28 @@ type OSMLocation = {
   aliases: OSMAlias[];
 };
 
-const categories: IncidentCategory[] = ['violence', 'protest', 'natural_disaster', 'infrastructure', 'health', 'terrorism', 'cyber', 'other'];
+const categories: IncidentCategory[] = ['violence', 'protest', 'natural_disaster', 'infrastructure', 'health', 'terrorism', 'cyber', 'armed_conflict', 'other'];
 
 const INCIDENT_MAP_DEBUG = true;
 
-const markerKindStyles: Record<MarkerKind, { emoji: string; color: string }> = {
-  fire: { emoji: '\u{1F525}', color: '#f97316' },
-  conflict: { emoji: '\u26A0\uFE0F', color: '#ef4444' },
-  crime: { emoji: '\u{1F6A8}', color: '#f59e0b' },
-  default: { emoji: '\u{1F4CD}', color: '#3b82f6' },
+const markerKindStyles: Record<MarkerKind, { emoji: string; color: string; label: string }> = {
+  violence:           { emoji: '\u2694\uFE0F', color: '#ef4444', label: 'Violence' },
+  armed_conflict:     { emoji: '\u{1F4A5}', color: '#dc2626', label: 'Armed Conflict' },
+  terrorism:          { emoji: '\u{1F4A3}', color: '#b91c1c', label: 'Terrorism' },
+  protest:            { emoji: '\u270A', color: '#f59e0b', label: 'Protest' },
+  natural_disaster:   { emoji: '\u{1F30A}', color: '#06b6d4', label: 'Natural Disaster' },
+  fire:               { emoji: '\u{1F525}', color: '#f97316', label: 'Fire' },
+  infrastructure:     { emoji: '\u26A1', color: '#a855f7', label: 'Infrastructure' },
+  health:             { emoji: '\u{1F3E5}', color: '#10b981', label: 'Health' },
+  cyber:              { emoji: '\u{1F4BB}', color: '#6366f1', label: 'Cyber' },
+  drone:              { emoji: '\u{1F6E9}\uFE0F', color: '#e11d48', label: 'Drone/UAV' },
+  crime:              { emoji: '\u{1F6A8}', color: '#f59e0b', label: 'Crime' },
+  default:            { emoji: '\u{1F4CD}', color: '#3b82f6', label: 'Other' },
 };
 
-const markerIcons: Record<MarkerKind, L.DivIcon> = {
-  fire: createMarkerIcon('fire'),
-  conflict: createMarkerIcon('conflict'),
-  crime: createMarkerIcon('crime'),
-  default: createMarkerIcon('default'),
-};
+const markerIcons: Record<MarkerKind, L.DivIcon> = Object.fromEntries(
+  Object.keys(markerKindStyles).map((kind) => [kind, createMarkerIcon(kind as MarkerKind)])
+) as Record<MarkerKind, L.DivIcon>;
 
 function createMarkerIcon(kind: MarkerKind) {
   const style = markerKindStyles[kind];
@@ -343,84 +348,51 @@ const findLocationByReverseGeoJsonScan = (text: string, locations: OSMLocation[]
   return bestMatch;
 };
 
-const inferMarkerKind = (incident: Incident): MarkerKind => {
-  const englishText = normalizeLatinText(`${incident.title} ${incident.description}`);
-  const arabicText = normalizeArabicText(`${incident.title} ${incident.description}`);
-
-  if (englishText.includes('fire') || englishText.includes('blaze') || englishText.includes('wildfire') || englishText.includes('burn') || arabicText.includes('Ø­Ø±ÙŠÙ‚')) {
-    return 'fire';
-  }
-
-  if (
-    englishText.includes('crime') ||
-    englishText.includes('robbery') ||
-    englishText.includes('theft') ||
-    englishText.includes('shooting') ||
-    englishText.includes('murder') ||
-    englishText.includes('homicide') ||
-    englishText.includes('arrest') ||
-    arabicText.includes('Ø¬Ø±ÙŠÙ…Ø©') ||
-    arabicText.includes('Ø³Ø±Ù‚Ù‡') ||
-    arabicText.includes('Ø§Ø·Ù„Ø§Ù‚ Ù†Ø§Ø±')
-  ) {
-    return 'crime';
-  }
-
-  if (
-    incident.category === 'violence' ||
-    incident.category === 'terrorism' ||
-    englishText.includes('conflict') ||
-    englishText.includes('clash') ||
-    englishText.includes('attack') ||
-    englishText.includes('explosion') ||
-    englishText.includes('strike') ||
-    arabicText.includes('Ø§Ø´ØªØ¨Ø§Ùƒ') ||
-    arabicText.includes('Ù‡Ø¬ÙˆÙ…') ||
-    arabicText.includes('Ø§Ù†ÙØ¬Ø§Ø±')
-  ) {
-    return 'conflict';
-  }
-
-  return 'default';
+/** Map a backend category string to a MarkerKind. */
+const categoryToMarkerKind = (category: string | undefined): MarkerKind | null => {
+  if (!category) return null;
+  const map: Record<string, MarkerKind> = {
+    violence: 'violence',
+    armed_conflict: 'armed_conflict',
+    terrorism: 'terrorism',
+    protest: 'protest',
+    natural_disaster: 'natural_disaster',
+    infrastructure: 'infrastructure',
+    health: 'health',
+    cyber: 'cyber',
+  };
+  return map[category] ?? null;
 };
 
-const inferMarkerKindFromText = (text: string): MarkerKind => {
-  const englishText = normalizeLatinText(text);
-  const arabicText = normalizeArabicText(text);
+/** Refine marker kind by scanning the full text for sub-category keywords.
+ *  E.g. a "violence" post about a drone gets the drone icon instead of generic violence. */
+const refineKindByText = (baseKind: MarkerKind, text: string): MarkerKind => {
+  const lower = text.toLowerCase();
 
-  if (englishText.includes('fire') || englishText.includes('blaze') || englishText.includes('wildfire') || englishText.includes('burn') || arabicText.includes('Ø­Ø±ÙŠÙ‚')) {
+  // Drone/UAV — very common in Lebanese alert channels
+  if (lower.includes('drone') || lower.includes('uav') || /مسير/.test(text) || /طائرة/.test(text) || lower.includes('#مسير')) {
+    return 'drone';
+  }
+  // Fire
+  if (lower.includes('fire') || lower.includes('blaze') || lower.includes('wildfire') || /حريق/.test(text)) {
     return 'fire';
   }
+  return baseKind;
+};
 
-  if (
-    englishText.includes('crime') ||
-    englishText.includes('robbery') ||
-    englishText.includes('theft') ||
-    englishText.includes('shooting') ||
-    englishText.includes('murder') ||
-    englishText.includes('homicide') ||
-    englishText.includes('arrest') ||
-    arabicText.includes('Ø¬Ø±ÙŠÙ…Ø©') ||
-    arabicText.includes('Ø³Ø±Ù‚Ù‡') ||
-    arabicText.includes('Ø§Ø·Ù„Ø§Ù‚ Ù†Ø§Ø±')
-  ) {
-    return 'crime';
-  }
+const inferMarkerKind = (incident: Incident): MarkerKind => {
+  // Use backend-assigned category
+  const fromCategory = categoryToMarkerKind(incident.category);
+  const base = fromCategory ?? 'default';
+  // Refine with text scan for sub-categories (drone, fire)
+  const fullText = (incident.title || '') + ' ' + (incident.description || '');
+  return refineKindByText(base, fullText);
+};
 
-  if (
-    englishText.includes('conflict') ||
-    englishText.includes('clash') ||
-    englishText.includes('attack') ||
-    englishText.includes('explosion') ||
-    englishText.includes('strike') ||
-    arabicText.includes('Ø§Ø´ØªØ¨Ø§Ùƒ') ||
-    arabicText.includes('Ù‡Ø¬ÙˆÙ…') ||
-    arabicText.includes('Ø§Ù†ÙØ¬Ø§Ø±')
-  ) {
-    return 'conflict';
-  }
-
-  return 'default';
+const inferMarkerKindFromCategory = (category: string | undefined, text: string): MarkerKind => {
+  const fromCategory = categoryToMarkerKind(category);
+  const base = fromCategory ?? 'default';
+  return refineKindByText(base, text);
 };
 
 const formatIncidentTime = (timestamp: number) => {
@@ -528,24 +500,33 @@ export default function IncidentMap() {
         ?? '';
       const incidentText = `${incident.title || ''} ${incident.description || ''} ${incidentRawText || ''}`.trim();
       const sourceUrl = resolveSourceUrl(incident);
-      const incidentMatchText = incidentText.toLowerCase().trim();
-      const matchResult = findLocationByReverseGeoJsonScan(incidentMatchText, osmLocations);
 
-      if (!matchResult) {
-        if (INCIDENT_MAP_DEBUG) {
-          console.log('[IncidentMap] no incident location match', {
-            text: incidentText,
-            matchedLocation: null,
-          });
-        }
-        continue;
+      // 1. Prefer backend-provided coordinates (already validated by NLP pipeline)
+      let lat: number | null = null;
+      let lng: number | null = null;
+      let locationLabel = incident.locationName || incident.region || 'Lebanon';
+
+      if (incident.location && isFiniteCoordinate(incident.location.lat, incident.location.lng)) {
+        lat = incident.location.lat;
+        lng = incident.location.lng;
       }
 
-      if (INCIDENT_MAP_DEBUG) {
-        console.log('[IncidentMap] matched incident location', {
-          text: incidentText,
-          matchedLocation: matchResult.alias.raw,
-        });
+      // 2. Fall back to OSM text matching only if backend coordinates missing/invalid
+      if (lat === null || lng === null) {
+        const matchResult = findLocationByReverseGeoJsonScan(incidentText.toLowerCase(), osmLocations);
+        if (matchResult) {
+          lat = matchResult.location.lat;
+          lng = matchResult.location.lng;
+          locationLabel = matchResult.alias.raw;
+        }
+      }
+
+      // Skip if we still have no valid Lebanon coordinates
+      if (lat === null || lng === null) {
+        if (INCIDENT_MAP_DEBUG) {
+          console.log('[IncidentMap] skipped incident (no Lebanon coordinates)', { title: incident.title });
+        }
+        continue;
       }
 
       events.push({
@@ -554,39 +535,46 @@ export default function IncidentMap() {
         text: incidentText,
         title: incident.title,
         description: incident.description,
-        location: matchResult.alias.raw,
+        location: locationLabel,
         sourceUrl,
         sourceType: 'incident',
         timestamp: new Date(incident.createdAt).getTime(),
-        lat: matchResult.location.lat,
-        lng: matchResult.location.lng,
+        lat,
+        lng,
         kind: inferMarkerKind(incident),
       });
     }
 
     for (const feed of filteredTelegramFeeds) {
-      const feedWithMessage = feed as OfficialFeedPost & { message?: string };
-      const text = `${feedWithMessage.message || feed.content || ''}`.trim();
-      const sourceUrl = resolveSourceUrl(feed);
-      const telegramMatchText = text.toLowerCase().trim();
+      const text = (feed.content || '').trim();
       if (!text) continue;
-      const matchResult = findLocationByReverseGeoJsonScan(telegramMatchText, osmLocations);
+      const sourceUrl = resolveSourceUrl(feed);
 
-      if (!matchResult) {
-        if (INCIDENT_MAP_DEBUG) {
-          console.log('[IncidentMap] no telegram location match', {
-            text,
-            matchedLocation: null,
-          });
-        }
-        continue;
+      // 1. Prefer backend-provided coordinates
+      let lat: number | null = null;
+      let lng: number | null = null;
+      let locationLabel = feed.locationName || feed.region || 'Lebanon';
+
+      if (feed.location && isFiniteCoordinate(feed.location.lat, feed.location.lng)) {
+        lat = feed.location.lat;
+        lng = feed.location.lng;
       }
 
-      if (INCIDENT_MAP_DEBUG) {
-        console.log('[IncidentMap] matched telegram location', {
-          text,
-          matchedLocation: matchResult.alias.raw,
-        });
+      // 2. Fall back to OSM text matching
+      if (lat === null || lng === null) {
+        const matchResult = findLocationByReverseGeoJsonScan(text.toLowerCase(), osmLocations);
+        if (matchResult) {
+          lat = matchResult.location.lat;
+          lng = matchResult.location.lng;
+          locationLabel = matchResult.alias.raw;
+        }
+      }
+
+      if (lat === null || lng === null) {
+        if (INCIDENT_MAP_DEBUG) {
+          console.log('[IncidentMap] skipped telegram post (no Lebanon coordinates)', { text: text.slice(0, 60) });
+        }
+        continue;
       }
 
       events.push({
@@ -595,13 +583,13 @@ export default function IncidentMap() {
         text,
         title: feed.accountLabel || feed.publisherName || 'Telegram Feed',
         description: text,
-        location: matchResult.alias.raw,
+        location: locationLabel,
         sourceUrl,
         sourceType: 'telegram',
         timestamp: new Date(feed.publishedAt).getTime(),
-        lat: matchResult.location.lat,
-        lng: matchResult.location.lng,
-        kind: inferMarkerKindFromText(text),
+        lat,
+        lng,
+        kind: inferMarkerKindFromCategory(feed.category, text),
       });
     }
 
@@ -720,11 +708,15 @@ export default function IncidentMap() {
         icon: markerIcons[eventItem.kind],
       });
 
+      const kindStyle = markerKindStyles[eventItem.kind];
       marker.bindPopup(
         `<div style="min-width:280px;">
            <p style="margin:0 0 6px;font-weight:700;font-size:14px;line-height:1.4;">${escapeHtml(eventItem.title)}</p>
            <p style="margin:0 0 8px;color:#cbd5e1;font-size:12px;line-height:1.5;">${escapeHtml(eventItem.text || eventItem.description || '')}</p>
-           <p style="margin:0;font-size:11px;color:#94a3b8;">Type: ${escapeHtml(eventItem.type)}</p>
+           <p style="margin:0;font-size:11px;color:#94a3b8;">
+             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${kindStyle.color};margin-right:4px;vertical-align:middle;"></span>
+             ${escapeHtml(kindStyle.label)} &middot; ${escapeHtml(eventItem.type)}
+           </p>
            <p style="margin:4px 0 0;font-size:11px;color:#94a3b8;">Location: ${escapeHtml(eventItem.location)}</p>
            <p style="margin:4px 0 0;font-size:11px;color:#94a3b8;">Time: ${escapeHtml(formatIncidentTime(eventItem.timestamp))}</p>
            ${sourceButtonHtml}

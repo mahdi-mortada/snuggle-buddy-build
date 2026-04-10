@@ -1,6 +1,6 @@
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type AlertSeverity = 'info' | 'warning' | 'critical' | 'emergency';
-export type IncidentCategory = 'violence' | 'protest' | 'natural_disaster' | 'infrastructure' | 'health' | 'terrorism' | 'cyber' | 'other';
+export type IncidentCategory = 'violence' | 'protest' | 'natural_disaster' | 'infrastructure' | 'health' | 'terrorism' | 'cyber' | 'armed_conflict' | 'other';
 export type IncidentStatus = 'new' | 'processing' | 'analyzed' | 'escalated' | 'resolved' | 'false_alarm';
 export type CredibilityLevel = 'verified' | 'high' | 'moderate' | 'low' | 'unverified';
 
@@ -91,6 +91,14 @@ export interface OfficialFeedPost {
   primaryKeyword?: string | null;
   sourceInfo: SourceInfo;
   publishedAt: string;
+  category: string;
+  severity: Severity;
+  region: string;
+  location: { lat: number; lng: number };
+  locationName: string;
+  riskScore: number;
+  keywords: string[];
+  isSafetyRelevant: boolean;
 }
 
 export interface OfficialFeedSource {
