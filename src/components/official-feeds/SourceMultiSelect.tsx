@@ -68,16 +68,31 @@ export function SourceMultiSelect({
     <div className="space-y-2">
       <label className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Source</label>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
+        <div className="flex items-center gap-2">
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 justify-between border-border/60 bg-background/40 text-left text-sm font-normal text-foreground hover:bg-accent/40"
+            >
+              <span className={cn('truncate', selectedIds.length === 0 && 'text-muted-foreground')}>{triggerLabel}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </Button>
+          </PopoverTrigger>
           <Button
             type="button"
             variant="outline"
-            className="w-full justify-between border-border/60 bg-background/40 text-left text-sm font-normal text-foreground hover:bg-accent/40"
+            size="sm"
+            onClick={() => {
+              setOpen(true);
+              setIsAddFormOpen(true);
+            }}
+            className="border-border/60 bg-background/40 hover:bg-accent/40"
           >
-            <span className={cn('truncate', selectedIds.length === 0 && 'text-muted-foreground')}>{triggerLabel}</span>
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <Plus className="h-4 w-4" />
+            Add Source
           </Button>
-        </PopoverTrigger>
+        </div>
         <PopoverContent className="w-[360px] border-border/60 bg-background/95 p-0" align="start">
           <div className="border-b border-border/60 p-2">
             <div className="flex items-center justify-between gap-2">
@@ -87,10 +102,13 @@ export function SourceMultiSelect({
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  setIsAddFormOpen((current) => !current);
-                  if (isAddFormOpen) {
-                    setPendingInput('');
-                  }
+                  setIsAddFormOpen((current) => {
+                    const next = !current;
+                    if (!next) {
+                      setPendingInput('');
+                    }
+                    return next;
+                  });
                 }}
                 className="h-8 px-2 text-xs"
               >

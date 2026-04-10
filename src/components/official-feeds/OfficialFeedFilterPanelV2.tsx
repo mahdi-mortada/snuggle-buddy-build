@@ -1,13 +1,15 @@
 import { Filter, RotateCcw } from 'lucide-react';
 
 import { FilterMultiSelect } from '@/components/official-feeds/FilterMultiSelect';
+import { SourceMultiSelect } from '@/components/official-feeds/SourceMultiSelect';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { FilterOption } from '@/lib/officialFeedFilters';
+import type { OfficialFeedSource } from '@/types/crisis';
 
 type OfficialFeedFilterPanelProps = {
-  sourceOptions: FilterOption[];
+  sources: OfficialFeedSource[];
   regionOptions: FilterOption[];
   selectedSources: string[];
   selectedRegionIds: string[];
@@ -15,6 +17,10 @@ type OfficialFeedFilterPanelProps = {
   totalResults: number;
   filteredResults: number;
   regionOptionsReady: boolean;
+  isAddingSource: boolean;
+  deletingSourceIds: string[];
+  onAddSource: (input: string) => Promise<boolean>;
+  onDeleteSource: (source: OfficialFeedSource) => Promise<boolean>;
   onSourceChange: (nextSelectedSources: string[]) => void;
   onRegionChange: (nextSelectedRegionIds: string[]) => void;
   onKeywordChange: (nextKeyword: string) => void;
@@ -22,7 +28,7 @@ type OfficialFeedFilterPanelProps = {
 };
 
 export function OfficialFeedFilterPanel({
-  sourceOptions,
+  sources,
   regionOptions,
   selectedSources,
   selectedRegionIds,
@@ -30,6 +36,10 @@ export function OfficialFeedFilterPanel({
   totalResults,
   filteredResults,
   regionOptionsReady,
+  isAddingSource,
+  deletingSourceIds,
+  onAddSource,
+  onDeleteSource,
   onSourceChange,
   onRegionChange,
   onKeywordChange,
@@ -71,14 +81,14 @@ export function OfficialFeedFilterPanel({
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <FilterMultiSelect
-          label="News Sources"
-          options={sourceOptions}
+        <SourceMultiSelect
+          sources={sources}
           selectedIds={selectedSources}
-          placeholder="Select one or more sources"
-          searchPlaceholder="Search sources..."
-          allOptionLabel="All News Sources"
+          isAddingSource={isAddingSource}
+          deletingSourceIds={deletingSourceIds}
           onChange={onSourceChange}
+          onAddSource={onAddSource}
+          onDeleteSource={onDeleteSource}
         />
 
         <FilterMultiSelect

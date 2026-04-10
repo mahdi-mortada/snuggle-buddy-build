@@ -1,5 +1,15 @@
 import { runtimeConfig } from "@/lib/runtimeConfig";
-import type { Alert, CredibilityLevel, DashboardStats, Incident, OfficialFeedPost, RiskScore, SourceInfo, TrendDataPoint } from "@/types/crisis";
+import type {
+  Alert,
+  CredibilityLevel,
+  DashboardStats,
+  Incident,
+  OfficialFeedPost,
+  OfficialFeedSource,
+  RiskScore,
+  SourceInfo,
+  TrendDataPoint,
+} from "@/types/crisis";
 
 type ApiEnvelope<T> = {
   success: boolean;
@@ -78,6 +88,8 @@ type BackendOverview = {
 
 type BackendOfficialFeedPost = {
   id: string;
+  source_id: string;
+  is_custom: boolean;
   platform: string;
   publisher_name: string;
   account_label: string;
@@ -90,6 +102,17 @@ type BackendOfficialFeedPost = {
   primary_keyword?: string | null;
   source_info: BackendSourceInfo;
   published_at: string;
+};
+
+type BackendOfficialFeedSource = {
+  id: string;
+  source_type: string;
+  name: string;
+  username: string;
+  telegram_id: number | null;
+  is_active: boolean;
+  is_custom: boolean;
+  created_at: string;
 };
 
 export type BackendDashboardSnapshot = {
@@ -255,6 +278,8 @@ function mapAlert(alert: BackendAlert): Alert {
 function mapOfficialFeedPost(post: BackendOfficialFeedPost): OfficialFeedPost {
   return {
     id: post.id,
+    sourceId: post.source_id,
+    isCustom: post.is_custom,
     platform: post.platform === "x" ? "x" : "telegram",
     publisherName: post.publisher_name,
     accountLabel: post.account_label,
@@ -267,6 +292,19 @@ function mapOfficialFeedPost(post: BackendOfficialFeedPost): OfficialFeedPost {
     primaryKeyword: post.primary_keyword ?? null,
     sourceInfo: mapSourceInfo(post.source_info),
     publishedAt: post.published_at,
+  };
+}
+
+function mapOfficialFeedSource(source: BackendOfficialFeedSource): OfficialFeedSource {
+  return {
+    id: source.id,
+    sourceType: source.source_type === "rss" ? "rss" : "telegram",
+    name: source.name,
+    username: source.username,
+    telegramId: source.telegram_id ?? null,
+    isActive: source.is_active,
+    isCustom: source.is_custom,
+    createdAt: source.created_at,
   };
 }
 
@@ -451,9 +489,9 @@ async function requestBackend<T>(path: string, init: RequestInit = {}, retry = t
   });
 
   const rawBody = await response.text();
-  let payload: ApiEnvelope<T> | null = null;
+  let payload: ApiEnvelope<T> | Record<string, unknown> | null = null;
   try {
-    payload = rawBody ? (JSON.parse(rawBody) as ApiEnvelope<T>) : null;
+    payload = rawBody ? (JSON.parse(rawBody) as ApiEnvelope<T> | Record<string, unknown>) : null;
   } catch {
     payload = null;
   }
@@ -469,14 +507,53 @@ async function requestBackend<T>(path: string, init: RequestInit = {}, retry = t
   }
 
   if (!payload) {
+    if (!response.ok) {
+      throw new Error(`Backend request failed (${response.status})`);
+    }
     throw new Error(`Backend response was not valid JSON (${response.status})`);
   }
 
-  if (!response.ok || !payload.success) {
-    throw new Error(payload.error || `Backend request failed (${response.status})`);
+  const payloadRecord = payload as Record<string, unknown>;
+  const errorMessage = extractBackendErrorMessage(payloadRecord, response.status);
+
+  if (!response.ok) {
+    throw new Error(errorMessage);
   }
 
-  return payload.data;
+  const isEnvelope = typeof payloadRecord.success === "boolean" && "data" in payloadRecord;
+  if (!isEnvelope) {
+    throw new Error(errorMessage);
+  }
+
+  if (!payloadRecord.success) {
+    throw new Error(errorMessage);
+  }
+
+  return payloadRecord.data as T;
+}
+
+function extractBackendErrorMessage(payload: Record<string, unknown>, status: number): string {
+  const error = payload.error;
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  const detail = payload.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const firstDetail = detail[0];
+    if (firstDetail && typeof firstDetail === "object" && "msg" in firstDetail) {
+      const message = firstDetail.msg;
+      if (typeof message === "string" && message.trim()) {
+        return message;
+      }
+    }
+  }
+
+  return `Backend request failed (${status})`;
 }
 
 export async function fetchBackendDashboardSnapshot(): Promise<BackendDashboardSnapshot> {
@@ -529,6 +606,29 @@ export async function acknowledgeBackendAlert(alertId: string): Promise<Alert> {
 export async function fetchBackendOfficialFeedPosts(limit = 24): Promise<OfficialFeedPost[]> {
   const posts = await requestBackend<BackendOfficialFeedPost[]>(`/api/v1/official-feeds?limit=${limit}`);
   return posts.map(mapOfficialFeedPost);
+}
+
+export async function fetchBackendOfficialFeedSources(): Promise<OfficialFeedSource[]> {
+  const sources = await requestBackend<BackendOfficialFeedSource[]>("/api/v1/official-feeds/sources");
+  return sources.map(mapOfficialFeedSource);
+}
+
+export async function createBackendOfficialFeedSource(input: string): Promise<OfficialFeedSource> {
+  const source = await requestBackend<BackendOfficialFeedSource>("/api/v1/official-feeds/sources", {
+    method: "POST",
+    body: JSON.stringify({
+      source_type: "telegram",
+      input,
+    }),
+  });
+  return mapOfficialFeedSource(source);
+}
+
+export async function deleteBackendOfficialFeedSource(sourceId: string): Promise<OfficialFeedSource> {
+  const source = await requestBackend<BackendOfficialFeedSource>(`/api/v1/official-feeds/sources/${sourceId}`, {
+    method: "DELETE",
+  });
+  return mapOfficialFeedSource(source);
 }
 
 export async function fetchBackendLiveIncidents(limit = 25): Promise<Incident[]> {

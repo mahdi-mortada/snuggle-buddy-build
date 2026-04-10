@@ -77,6 +77,8 @@ export interface TrendDataPoint {
 
 export interface OfficialFeedPost {
   id: string;
+  sourceId: string;
+  isCustom: boolean;
   platform: 'telegram' | 'x';
   publisherName: string;
   accountLabel: string;
@@ -89,4 +91,15 @@ export interface OfficialFeedPost {
   primaryKeyword?: string | null;
   sourceInfo: SourceInfo;
   publishedAt: string;
+}
+
+export interface OfficialFeedSource {
+  id: string;
+  sourceType: 'telegram' | 'rss';
+  name: string;
+  username: string;
+  telegramId: number | null;
+  isActive: boolean;
+  isCustom: boolean;
+  createdAt: string;
 }
