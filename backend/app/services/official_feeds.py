@@ -507,6 +507,11 @@ class OfficialFeedService:
 
         category = self._infer_category(post.content, nlp_result=nlp_result)
         keywords = self._extract_keywords(post.content, nlp_result=nlp_result)
+        # Alert-style channels (e.g. Red Alert Lebanon) use hashtags + emojis rather than
+        # full sentences, so they often have no CATEGORY_KEYWORDS matches. Fall back to
+        # hashtags so their posts still pass through — they are Lebanon-relevant.
+        if not keywords:
+            keywords = self._extract_hashtags(post.content)[:8]
         if not keywords:
             return None
 
@@ -536,7 +541,9 @@ class OfficialFeedService:
         )
 
     def _is_lebanon_relevant(self, content: str) -> bool:
-        lowered = content.lower()
+        # Normalise underscores to spaces so hashtag forms like #جنوب_لبنان match
+        # the keyword "جنوب لبنان" that uses a space.
+        lowered = content.lower().replace("_", " ")
         return any(keyword in lowered for keyword in LEBANON_CONTEXT_KEYWORDS) or place_gazetteer.match_text(content) is not None
 
     def _infer_region(self, content: str) -> tuple[str, str]:
