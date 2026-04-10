@@ -35,3 +35,5 @@ pytz>=2024.1
 prometheus-fastapi-instrumentator>=7.0,<8.0
 
 anthropic>=0.25,<1.0
+
+Telethon>=1.37,<2.0
