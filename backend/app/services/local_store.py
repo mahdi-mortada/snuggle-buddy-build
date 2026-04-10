@@ -104,12 +104,26 @@ class LocalStore:
     def get_source(self, source_id: str) -> SourceRecord | None:
         return next((row for row in self.list_sources() if row.id == source_id), None)
 
+    def get_source_by_telegram_id(self, telegram_id: int) -> SourceRecord | None:
+        return next(
+            (
+                row
+                for row in self.list_sources()
+                if row.telegram_id is not None and row.telegram_id == telegram_id
+            ),
+            None,
+        )
+
     def create_source(self, source: SourceRecord) -> SourceRecord:
         for existing_source in self.list_sources():
-            if source.telegram_id is not None and existing_source.telegram_id is not None and existing_source.telegram_id == source.telegram_id:
+            if not existing_source.is_active:
+                continue
+            if (
+                source.telegram_id is not None
+                and existing_source.telegram_id is not None
+                and existing_source.telegram_id == source.telegram_id
+            ):
                 raise LocalStoreConflictError("duplicate_telegram_id")
-            if existing_source.username.casefold() == source.username.casefold():
-                raise LocalStoreConflictError("duplicate_username")
         self._state["sources"].append(source.model_dump(mode="json"))
         self.persist()
         return source
