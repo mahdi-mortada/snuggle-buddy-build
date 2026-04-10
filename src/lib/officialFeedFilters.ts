@@ -28,7 +28,7 @@ export function buildSourceOptions(posts: OfficialFeedPost[]): FilterOption[] {
 
   for (const post of posts) {
     const sourceLabel = post.publisherName || post.accountLabel || post.sourceInfo.name;
-    const sourceId = normalizeLatinText(sourceLabel);
+    const sourceId = post.sourceId || normalizeLatinText(sourceLabel);
     if (!sourceId || options.has(sourceId)) continue;
     options.set(sourceId, {
       id: sourceId,
@@ -46,7 +46,7 @@ export function prepareOfficialFeedPosts(
 ): PreparedOfficialFeedPost[] {
   return posts.map((post) => {
     const sourceLabel = post.publisherName || post.accountLabel || post.sourceInfo.name;
-    const sourceId = normalizeLatinText(sourceLabel);
+    const sourceId = post.sourceId || normalizeLatinText(sourceLabel);
     const rawSearchText = [
       post.publisherName,
       post.accountLabel,

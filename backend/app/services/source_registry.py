@@ -45,6 +45,8 @@ class SourceRegistryService:
         _ = name
         normalized_type = source_type.strip().lower() or "telegram"
         normalized_input = raw_input.strip()
+        resolved_username: str | None = None
+        resolved_telegram_id: int | None = None
         try:
             if normalized_type != "telegram":
                 raise SourceRegistryError(
@@ -54,10 +56,29 @@ class SourceRegistryService:
 
             username = self.extract_username(normalized_input)
             self._log_validation_start(normalized_input, username)
-            self._ensure_custom_limit()
             validation = await self.validate_telegram_source(username)
+            resolved_username = validation.username
+            resolved_telegram_id = validation.telegram_id
             self._log_validation_success(validation.username, validation.telegram_id)
-            self._ensure_not_duplicate(username=validation.username, telegram_id=validation.telegram_id)
+            self._ensure_not_duplicate(telegram_id=validation.telegram_id)
+
+            existing_inactive_source = self._find_inactive_source_by_telegram_id(validation.telegram_id)
+            if existing_inactive_source is not None:
+                reactivated = local_store.update_source(
+                    existing_inactive_source.id,
+                    {
+                        "source_type": "telegram",
+                        "name": validation.name,
+                        "username": validation.username,
+                        "telegram_id": validation.telegram_id,
+                        "is_active": True,
+                        "is_custom": True,
+                    },
+                )
+                self._log_add_success(reactivated, reason="reactivated")
+                return reactivated
+
+            self._ensure_custom_limit()
 
             source = SourceRecord(
                 id=build_source_id("telegram", validation.telegram_id),
@@ -72,17 +93,28 @@ class SourceRegistryService:
             try:
                 created = local_store.create_source(source)
             except LocalStoreConflictError as exc:
-                self._log_duplicate_blocked(validation.username, validation.telegram_id)
+                self._log_duplicate_blocked(
+                    validation.username,
+                    validation.telegram_id,
+                    reason="active_telegram_id",
+                )
                 raise SourceRegistryError("Channel already added", reason="duplicate") from exc
-            self._log_add_success(created)
+            self._log_add_success(created, reason="created")
             return created
         except SourceRegistryError as exc:
-            self._log_validation_failure(exc.reason)
-            self._log_add_failure(normalized_input, exc.reason)
+            if exc.reason in {"invalid_format", "not_found", "private_inaccessible", "not_a_channel", "fetch_failed", "telegram_unavailable"}:
+                self._log_validation_failure(exc.reason)
+            self._log_add_failure(normalized_input, exc.reason, username=resolved_username, telegram_id=resolved_telegram_id)
             raise
         except Exception as exc:
             self._log_validation_failure("unexpected_error", level="ERROR")
-            self._log_add_failure(normalized_input, "unexpected_error", level="ERROR")
+            self._log_add_failure(
+                normalized_input,
+                "unexpected_error",
+                level="ERROR",
+                username=resolved_username,
+                telegram_id=resolved_telegram_id,
+            )
             raise SourceRegistryError(
                 "Telegram validation failed. Try again in a moment.",
                 reason="unexpected_error",
@@ -97,9 +129,11 @@ class SourceRegistryService:
 
     def delete_source(self, source_id: str) -> SourceRecord:
         try:
-            return local_store.delete_source(source_id)
+            deleted = local_store.delete_source(source_id)
         except KeyError as exc:
             raise SourceRegistryError("Source not found.", reason="not_found", status_code=404) from exc
+        self._log_delete_success(deleted)
+        return deleted
 
     def extract_username(self, raw_input: str) -> str:
         value = raw_input.strip()
@@ -153,25 +187,29 @@ class SourceRegistryService:
             telegram_id=resolved.telegram_id,
         )
 
-    def _ensure_not_duplicate(self, *, username: str, telegram_id: int) -> None:
-        normalized_username = username.casefold()
+    def _ensure_not_duplicate(self, *, telegram_id: int) -> None:
         for source in local_store.list_sources():
+            if not source.is_active:
+                continue
             if source.telegram_id is not None and source.telegram_id == telegram_id:
-                self._log_duplicate_blocked(username, telegram_id)
-                raise SourceRegistryError("Channel already added", reason="duplicate")
-            if source.username.casefold() == normalized_username:
-                self._log_duplicate_blocked(username, telegram_id)
+                self._log_duplicate_blocked(source.username, telegram_id, reason="active_telegram_id")
                 raise SourceRegistryError("Channel already added", reason="duplicate")
 
     def _ensure_custom_limit(self) -> None:
-        custom_count = sum(1 for source in local_store.list_sources() if source.is_custom)
+        custom_count = sum(1 for source in local_store.list_sources() if source.is_custom and source.is_active)
         if custom_count >= MAX_CUSTOM_SOURCES:
             raise SourceRegistryError(
                 f"Custom Telegram source limit reached ({MAX_CUSTOM_SOURCES}).",
                 reason="limit_reached",
             )
 
-    def _log_add_success(self, source: SourceRecord) -> None:
+    def _find_inactive_source_by_telegram_id(self, telegram_id: int) -> SourceRecord | None:
+        existing = local_store.get_source_by_telegram_id(telegram_id)
+        if existing is None or existing.is_active:
+            return None
+        return existing
+
+    def _log_add_success(self, source: SourceRecord, *, reason: str) -> None:
         log_system_event(
             "INFO",
             "SOURCE_ADDED",
@@ -180,26 +218,49 @@ class SourceRegistryService:
                 "username": source.username,
                 "telegram_id": source.telegram_id,
                 "source_type": source.source_type,
+                "reason": reason,
             },
         )
 
-    def _log_add_failure(self, raw_input: str, reason: str, *, level: str = "WARN") -> None:
+    def _log_add_failure(
+        self,
+        raw_input: str,
+        reason: str,
+        *,
+        level: str = "WARN",
+        username: str | None = None,
+        telegram_id: int | None = None,
+    ) -> None:
         log_system_event(
             level,
             "SOURCE_ADD_FAILED",
             {
                 "input_value": raw_input,
+                "username": username,
+                "telegram_id": telegram_id,
                 "reason": reason,
             },
         )
 
-    def _log_duplicate_blocked(self, username: str, telegram_id: int) -> None:
+    def _log_duplicate_blocked(self, username: str, telegram_id: int, *, reason: str) -> None:
         log_system_event(
             "WARN",
             "DUPLICATE_BLOCKED",
             {
                 "username": username,
                 "telegram_id": telegram_id,
+                "reason": reason,
+            },
+        )
+
+    def _log_delete_success(self, source: SourceRecord) -> None:
+        log_system_event(
+            "INFO",
+            "SOURCE_DELETED",
+            {
+                "username": source.username,
+                "telegram_id": source.telegram_id,
+                "reason": "deleted",
             },
         )
 

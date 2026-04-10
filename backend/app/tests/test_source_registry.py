@@ -104,6 +104,12 @@ def test_sources_endpoint_can_create_toggle_and_delete_source(monkeypatch) -> No
             "username": "customwatch",
             "telegram_id": 987654321,
             "source_type": "telegram",
+            "reason": "created",
+        }) in log_events
+        assert ("INFO", "SOURCE_DELETED", {
+            "username": "customwatch",
+            "telegram_id": 987654321,
+            "reason": "deleted",
         }) in log_events
     finally:
         local_store._state = original_state
@@ -150,6 +156,9 @@ def test_sources_endpoint_rejects_duplicates(monkeypatch) -> None:
             )
             assert duplicate_response.status_code == 400
             assert duplicate_response.json()["detail"] == "Channel already added"
+            list_response = client.get("/api/v1/official-feeds/sources", headers=headers)
+            duplicate_entries = [source for source in list_response.json()["data"] if source["telegram_id"] == 123456789]
+            assert len(duplicate_entries) == 1
             assert (
                 "INFO",
                 "VALIDATION_START",
@@ -172,13 +181,7 @@ def test_sources_endpoint_rejects_duplicates(monkeypatch) -> None:
                 {
                     "username": "duplicatewatch",
                     "telegram_id": 123456789,
-                },
-            ) in log_events
-            assert (
-                "WARN",
-                "VALIDATION_FAILED",
-                {
-                    "reason": "duplicate",
+                    "reason": "active_telegram_id",
                 },
             ) in log_events
             assert (
@@ -186,6 +189,8 @@ def test_sources_endpoint_rejects_duplicates(monkeypatch) -> None:
                 "SOURCE_ADD_FAILED",
                 {
                     "input_value": "https://t.me/DuplicateWatch",
+                    "username": "duplicatewatch",
+                    "telegram_id": 123456789,
                     "reason": "duplicate",
                 },
             ) in log_events
@@ -193,4 +198,78 @@ def test_sources_endpoint_rejects_duplicates(monkeypatch) -> None:
         local_store._state = original_state
         local_store.persist = original_persist
         source_registry_service.validate_telegram_source = original_validator
+        source_registry_module.log_system_event = original_log_system_event
+
+
+def test_sources_endpoint_reactivates_inactive_source(monkeypatch) -> None:
+    original_state = deepcopy(local_store._state)
+    original_persist = local_store.persist
+    original_validator = source_registry_service.validate_telegram_source
+    original_invalidate_cache = official_feed_service.invalidate_cache
+    original_log_system_event = source_registry_module.log_system_event
+    invalidate_calls: list[str] = []
+    log_events: list[tuple[str, str, dict[str, object]]] = []
+
+    async def fake_validate(identifier: str) -> TelegramValidationResult:
+        return TelegramValidationResult(name="Watch Live", username=identifier, telegram_id=555001111)
+
+    monkeypatch.setattr(local_store, "persist", lambda: None)
+    monkeypatch.setattr(source_registry_service, "validate_telegram_source", fake_validate)
+    monkeypatch.setattr(official_feed_service, "invalidate_cache", lambda: invalidate_calls.append("invalidate"))
+    monkeypatch.setattr(source_registry_module, "log_system_event", lambda level, event, details: log_events.append((level, event, details)))
+
+    try:
+        with TestClient(app) as client:
+            login_response = client.post(
+                "/api/v1/auth/login",
+                json={"email": "admin@crisisshield.dev", "password": "admin12345"},
+            )
+            token = login_response.json()["data"]["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
+
+            create_response = client.post(
+                "/api/v1/official-feeds/sources",
+                headers=headers,
+                json={"source_type": "telegram", "input": "@WatchLive"},
+            )
+            assert create_response.status_code == 201
+            source_id = create_response.json()["data"]["id"]
+
+            disable_response = client.patch(
+                f"/api/v1/official-feeds/sources/{source_id}",
+                headers=headers,
+                json={"is_active": False},
+            )
+            assert disable_response.status_code == 200
+            assert disable_response.json()["data"]["is_active"] is False
+
+            readd_response = client.post(
+                "/api/v1/official-feeds/sources",
+                headers=headers,
+                json={"source_type": "telegram", "input": "https://t.me/WatchLive/"},
+            )
+            assert readd_response.status_code == 201
+            reactivated_payload = readd_response.json()["data"]
+            assert reactivated_payload["id"] == source_id
+            assert reactivated_payload["is_active"] is True
+            assert reactivated_payload["telegram_id"] == 555001111
+
+            list_response = client.get("/api/v1/official-feeds/sources", headers=headers)
+            matching_sources = [source for source in list_response.json()["data"] if source["telegram_id"] == 555001111]
+            assert len(matching_sources) == 1
+            assert matching_sources[0]["is_active"] is True
+
+        assert len(invalidate_calls) == 3
+        assert ("INFO", "SOURCE_ADDED", {
+            "name": "Watch Live",
+            "username": "watchlive",
+            "telegram_id": 555001111,
+            "source_type": "telegram",
+            "reason": "reactivated",
+        }) in log_events
+    finally:
+        local_store._state = original_state
+        local_store.persist = original_persist
+        source_registry_service.validate_telegram_source = original_validator
+        official_feed_service.invalidate_cache = original_invalidate_cache
         source_registry_module.log_system_event = original_log_system_event

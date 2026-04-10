@@ -8,13 +8,17 @@ import { openSourceUrl, resolveSourceUrl } from '@/lib/sourceLink';
 import { buildLebanonLocationIndex, type LebanonLocationIndex, type OSMRawData } from '@/lib/lebanonLocations';
 import {
   buildRegionOptions,
-  buildSourceOptions,
   filterOfficialFeedPosts,
   groupOfficialFeedPostsByPublisher,
   prepareOfficialFeedPosts,
 } from '@/lib/officialFeedFilters';
-import { fetchBackendOfficialFeedPosts } from '@/services/backendApi';
-import type { OfficialFeedPost } from '@/types/crisis';
+import {
+  createBackendOfficialFeedSource,
+  deleteBackendOfficialFeedSource,
+  fetchBackendOfficialFeedPosts,
+  fetchBackendOfficialFeedSources,
+} from '@/services/backendApi';
+import type { OfficialFeedPost, OfficialFeedSource } from '@/types/crisis';
 import { formatDistanceToNow } from 'date-fns';
 import { ExternalLink, RefreshCw, Radio, Send } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -27,20 +31,27 @@ function platformLabel(platform: OfficialFeedPost['platform']): string {
 export default function OfficialFeeds() {
   const { incidents, alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
   const [posts, setPosts] = useState<OfficialFeedPost[]>([]);
+  const [sources, setSources] = useState<OfficialFeedSource[]>([]);
   const [locationIndex, setLocationIndex] = useState<LebanonLocationIndex | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAddingSource, setIsAddingSource] = useState(false);
+  const [deletingSourceIds, setDeletingSourceIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedRegionIds, setSelectedRegionIds] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
   const debouncedKeyword = useDebouncedValue(keywordInput, 250);
 
-  const loadPosts = async (showToast = false) => {
+  const loadFeedData = async (showToast = false) => {
     setIsLoading(true);
     setError(null);
     try {
-      const nextPosts = await fetchBackendOfficialFeedPosts(24);
+      const [nextPosts, nextSources] = await Promise.all([
+        fetchBackendOfficialFeedPosts(24),
+        fetchBackendOfficialFeedSources(),
+      ]);
       setPosts(nextPosts);
+      setSources(sortSources(nextSources));
       if (showToast) {
         toast.success(`Official feeds refreshed: ${nextPosts.length} posts loaded`);
       }
@@ -56,12 +67,12 @@ export default function OfficialFeeds() {
   };
 
   useEffect(() => {
-    void loadPosts();
+    void loadFeedData();
   }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void loadPosts();
+      void loadFeedData();
     }, 60000);
     return () => window.clearInterval(timer);
   }, []);
@@ -94,7 +105,6 @@ export default function OfficialFeeds() {
   // Keep the raw backend payload as the single source of truth and derive
   // searchable metadata from it instead of duplicating another feed store.
   const preparedPosts = useMemo(() => prepareOfficialFeedPosts(posts, locationIndex), [posts, locationIndex]);
-  const sourceOptions = useMemo(() => buildSourceOptions(posts), [posts]);
   const regionOptions = useMemo(() => buildRegionOptions(preparedPosts), [preparedPosts]);
   const filteredPosts = useMemo(
     () =>
@@ -116,6 +126,48 @@ export default function OfficialFeeds() {
     setKeywordInput('');
   };
 
+  const handleAddSource = async (input: string): Promise<boolean> => {
+    const normalizedInput = input.trim();
+    if (!normalizedInput) {
+      toast.error('Enter a Telegram username or channel link first.');
+      return false;
+    }
+
+    setIsAddingSource(true);
+    try {
+      const createdSource = await createBackendOfficialFeedSource(normalizedInput);
+      setSources((currentSources) => sortSources(upsertSource(currentSources, createdSource)));
+      toast.success(`Source added: @${createdSource.username}`);
+      void loadFeedData();
+      return true;
+    } catch (addError) {
+      const message = addError instanceof Error ? addError.message : 'Unable to add Telegram source.';
+      toast.error(message);
+      return false;
+    } finally {
+      setIsAddingSource(false);
+    }
+  };
+
+  const handleDeleteSource = async (source: OfficialFeedSource): Promise<boolean> => {
+    setDeletingSourceIds((currentIds) => (currentIds.includes(source.id) ? currentIds : [...currentIds, source.id]));
+    try {
+      await deleteBackendOfficialFeedSource(source.id);
+      setSources((currentSources) => currentSources.filter((currentSource) => currentSource.id !== source.id));
+      setSelectedSources((currentSelected) => currentSelected.filter((selectedSourceId) => selectedSourceId !== source.id));
+      setPosts((currentPosts) => currentPosts.filter((post) => post.sourceId !== source.id));
+      toast.success(`Source removed: @${source.username}`);
+      void loadFeedData();
+      return true;
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : 'Unable to delete Telegram source.';
+      toast.error(message);
+      return false;
+    } finally {
+      setDeletingSourceIds((currentIds) => currentIds.filter((currentId) => currentId !== source.id));
+    }
+  };
+
   return (
     <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
       <div className="space-y-6">
@@ -134,7 +186,7 @@ export default function OfficialFeeds() {
           </div>
           <button
             onClick={() => {
-              void loadPosts(true);
+              void loadFeedData(true);
             }}
             disabled={isLoading}
             className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
@@ -163,7 +215,7 @@ export default function OfficialFeeds() {
         </div>
 
         <OfficialFeedFilterPanel
-          sourceOptions={sourceOptions}
+          sources={sources}
           regionOptions={regionOptions}
           selectedSources={selectedSources}
           selectedRegionIds={selectedRegionIds}
@@ -171,6 +223,10 @@ export default function OfficialFeeds() {
           totalResults={posts.length}
           filteredResults={filteredCount}
           regionOptionsReady={locationIndex !== null}
+          isAddingSource={isAddingSource}
+          deletingSourceIds={deletingSourceIds}
+          onAddSource={handleAddSource}
+          onDeleteSource={handleDeleteSource}
           onSourceChange={setSelectedSources}
           onRegionChange={setSelectedRegionIds}
           onKeywordChange={setKeywordInput}
@@ -324,4 +380,22 @@ function renderHighlightedText(text: string, keyword: string): ReactNode {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sortSources(sources: OfficialFeedSource[]): OfficialFeedSource[] {
+  return [...sources].sort((left, right) => {
+    if (left.isActive !== right.isActive) {
+      return left.isActive ? -1 : 1;
+    }
+    const nameComparison = left.name.localeCompare(right.name);
+    if (nameComparison !== 0) {
+      return nameComparison;
+    }
+    return left.username.localeCompare(right.username);
+  });
+}
+
+function upsertSource(sources: OfficialFeedSource[], nextSource: OfficialFeedSource): OfficialFeedSource[] {
+  const remainingSources = sources.filter((source) => source.id !== nextSource.id);
+  return [...remainingSources, nextSource];
 }
