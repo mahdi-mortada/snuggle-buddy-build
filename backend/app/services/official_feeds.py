@@ -502,17 +502,22 @@ class OfficialFeedService:
         return path
 
     def _enrich_post(self, post: OfficialFeedPost, *, nlp_result: dict[str, object] | None = None) -> OfficialFeedPost | None:
-        if not self._is_lebanon_relevant(post.content):
-            return None
+        # Custom sources are added intentionally by the user — always show their posts.
+        # Default official sources go through Lebanon relevance + keyword filtering to
+        # remove off-topic content from high-volume news channels.
+        if not post.is_custom:
+            if not self._is_lebanon_relevant(post.content):
+                return None
 
         category = self._infer_category(post.content, nlp_result=nlp_result)
         keywords = self._extract_keywords(post.content, nlp_result=nlp_result)
-        # Alert-style channels (e.g. Red Alert Lebanon) use hashtags + emojis rather than
-        # full sentences, so they often have no CATEGORY_KEYWORDS matches. Fall back to
-        # hashtags so their posts still pass through — they are Lebanon-relevant.
+        # Fall back to hashtags when no category keywords match (common for alert-style
+        # channels that use #hashtag + emoji format instead of full sentences).
         if not keywords:
             keywords = self._extract_hashtags(post.content)[:8]
-        if not keywords:
+        # For default sources, drop posts with no discernible keywords (likely ads/noise).
+        # For custom sources, keep the post even if empty — the user wants to see it.
+        if not keywords and not post.is_custom:
             return None
 
         severity = self._infer_severity(post.content)
