@@ -293,8 +293,20 @@ class TwscrapeScraper:
         if self._loaded:
             return self._api is not None
         try:
+            import os
             from twscrape import API  # type: ignore[import]
-            self._api = API()
+            # Look for accounts DB in /app (Docker mount) or local fallback
+            db_candidates = [
+                "/app/twscrape_accounts.db",
+                os.path.join(os.path.dirname(__file__), "../../../../twscrape_accounts.db"),
+                os.path.expanduser("~/.local/share/twscrape/accounts.db"),
+            ]
+            db_path = next((p for p in db_candidates if os.path.exists(p)), None)
+            if db_path:
+                logger.info("twscrape using DB: %s", db_path)
+                self._api = API(db_path)
+            else:
+                self._api = API()
             self._loaded = True
             logger.info("twscrape API loaded")
             return True

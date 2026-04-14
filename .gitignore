@@ -42,3 +42,6 @@ ml-pipeline/models/*.pkl
 *.njsproj
 *.sln
 *.sw?
+twscrape_accounts.db
+accounts.db
+backend/twscrape_accounts.db
