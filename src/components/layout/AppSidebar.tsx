@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Radio,
+  ShieldAlert,
 } from 'lucide-react';
 
 const navItems = [
@@ -19,6 +20,7 @@ const navItems = [
   { title: 'Analytics', url: '/analytics', icon: BarChart3 },
   { title: 'Official Feeds', url: '/official-feeds', icon: Radio },
   { title: 'Alerts', url: '/alerts', icon: Bell },
+  { title: 'Hate Speech Monitor', url: '/hate-speech', icon: ShieldAlert },
   { title: 'Settings', url: '/settings', icon: Settings },
 ];
 

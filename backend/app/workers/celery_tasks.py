@@ -54,6 +54,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.workers.celery_tasks.task_retrain_anomaly",
         "schedule": crontab(hour=2, minute=0, day_of_week=0),  # Sunday 02:00
     },
+    "scan-hate-speech-every-30min": {
+        "task": "app.workers.celery_tasks.task_scan_hate_speech",
+        "schedule": 1800.0,  # every 30 minutes
+    },
 }
 
 
@@ -141,4 +145,20 @@ def task_retrain_anomaly(self) -> dict:
         return {"status": "ok"}
     except Exception as exc:
         logger.error("Anomaly retraining failed: %s", exc)
+        raise
+
+
+@celery_app.task(name="app.workers.celery_tasks.task_scan_hate_speech", bind=True, max_retries=2)
+def task_scan_hate_speech(self) -> dict:
+    """Scrape X and run hate speech detection every 30 minutes."""
+    try:
+        async def _run():
+            from app.services.social_monitor import social_monitor_service
+            return await social_monitor_service.run_scan()
+
+        result = _run_async(_run()) or {}
+        logger.info("Hate speech scan: %s", result)
+        return result or {"status": "ok"}
+    except Exception as exc:
+        logger.error("Hate speech scan failed: %s", exc)
         raise

@@ -109,6 +109,7 @@ services:
       - "8010:8000"
     volumes:
       - ./backend:/app
+      - ./twscrape_accounts.db:/root/.local/share/twscrape/accounts.db
     depends_on:
       postgres:
         condition: service_healthy
@@ -141,6 +142,7 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./backend:/app
+      - ./twscrape_accounts.db:/root/.local/share/twscrape/accounts.db
     depends_on:
       redis:
         condition: service_healthy
