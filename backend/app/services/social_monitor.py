@@ -223,23 +223,31 @@ class SocialMonitorService:
 
     async def run_scan(self, include_replies: bool = True) -> dict[str, int]:
         """Run a full scrape + detection cycle. Returns summary counts.
-        Falls back to demo data when no real scraping succeeds.
+
+        Strategy (in order of preference):
+        1. user_tweets() from Lebanese media accounts (works without search access)
+        2. Keyword search (requires phone-verified X account)
+        3. Demo data fallback when no real scraping succeeds
         """
         logger.info("Social monitor: starting X scan")
         scraped: list[ScrapedPost] = []
 
+        # Primary: fetch from media account timelines (reliable even without search access)
         try:
-            query_posts = await x_scraper_service.scrape_queries()
-            scraped.extend(query_posts)
+            timeline_posts = await x_scraper_service.scrape_media_timelines(limit_per_account=25)
+            if timeline_posts:
+                logger.info("Social monitor: fetched %d posts from media timelines", len(timeline_posts))
+                scraped.extend(timeline_posts)
         except Exception as exc:
-            logger.warning("Query scrape failed: %s", exc)
+            logger.warning("Timeline scrape failed: %s", exc)
 
-        if include_replies:
+        # Secondary: keyword search (may be restricted by X)
+        if not scraped:
             try:
-                reply_posts = await x_scraper_service.scrape_media_replies()
-                scraped.extend(reply_posts)
+                query_posts = await x_scraper_service.scrape_queries()
+                scraped.extend(query_posts)
             except Exception as exc:
-                logger.warning("Reply scrape failed: %s", exc)
+                logger.warning("Query scrape failed: %s", exc)
 
         # If X scraping produced nothing, seed demo data (demo/dev mode)
         if not scraped:
@@ -357,11 +365,11 @@ class SocialMonitorService:
         flagged = [p for p in all_posts if p.is_flagged]
 
         by_cat: dict[str, int] = {}
-        for p in flagged:
+        for p in all_posts:
             by_cat[p.category] = by_cat.get(p.category, 0) + 1
 
         by_lang: dict[str, int] = {}
-        for p in flagged:
+        for p in all_posts:
             by_lang[p.language] = by_lang.get(p.language, 0) + 1
 
         kw_freq: dict[str, int] = {}

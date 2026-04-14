@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -282,12 +283,16 @@ class XGuestScraper:
 
 class TwscrapeScraper:
     """Uses twscrape library (requires X accounts configured via CLI).
-    Higher quality results, real tweet data including replies.
+
+    Note: X restricts keyword search for accounts without phone verification.
+    This scraper uses user_tweets() to pull from monitored accounts' timelines,
+    which works reliably without elevated access.
     """
 
     def __init__(self) -> None:
         self._api: object | None = None
         self._loaded = False
+        self._user_id_cache: dict[str, int] = {}
 
     def _load(self) -> bool:
         if self._loaded:
@@ -295,7 +300,6 @@ class TwscrapeScraper:
         try:
             import os
             from twscrape import API  # type: ignore[import]
-            # Look for accounts DB in /app (Docker mount) or local fallback
             db_candidates = [
                 "/app/twscrape_accounts.db",
                 os.path.join(os.path.dirname(__file__), "../../../../twscrape_accounts.db"),
@@ -316,33 +320,260 @@ class TwscrapeScraper:
             self._loaded = True
             return False
 
+    def _tweet_to_post(self, tweet: object) -> ScrapedPost | None:
+        try:
+            return ScrapedPost(
+                post_id=str(tweet.id),  # type: ignore[attr-defined]
+                author_id=str(tweet.user.id),  # type: ignore[attr-defined]
+                author_handle=tweet.user.username,  # type: ignore[attr-defined]
+                author_created_at=tweet.user.created.replace(tzinfo=UTC) if tweet.user.created else None,  # type: ignore[attr-defined]
+                content=re.sub(r"http\S+", "", tweet.rawContent or "").strip(),  # type: ignore[attr-defined]
+                lang=tweet.lang or "",  # type: ignore[attr-defined]
+                like_count=tweet.likeCount or 0,  # type: ignore[attr-defined]
+                retweet_count=tweet.retweetCount or 0,  # type: ignore[attr-defined]
+                reply_count=tweet.replyCount or 0,  # type: ignore[attr-defined]
+                quote_count=tweet.quoteCount or 0,  # type: ignore[attr-defined]
+                posted_at=tweet.date.replace(tzinfo=UTC) if tweet.date else datetime.now(UTC),  # type: ignore[attr-defined]
+                source_url=tweet.url or f"https://twitter.com/{tweet.user.username}/status/{tweet.id}",  # type: ignore[attr-defined]
+                in_reply_to_id=str(tweet.inReplyToTweetId) if tweet.inReplyToTweetId else None,  # type: ignore[attr-defined]
+                hashtags=[ht.lower() for ht in (tweet.hashtags or [])],  # type: ignore[attr-defined]
+            )
+        except Exception as exc:
+            logger.debug("Could not convert tweet to post: %s", exc)
+            return None
+
     async def search(self, query: str, limit: int = 50) -> list[ScrapedPost]:
+        """Attempt keyword search. Falls back to empty list if search is restricted."""
         if not self._load() or self._api is None:
             return []
         posts: list[ScrapedPost] = []
         try:
             async for tweet in self._api.search(query, limit=limit):  # type: ignore[attr-defined]
-                post = ScrapedPost(
-                    post_id=str(tweet.id),
-                    author_id=str(tweet.user.id),
-                    author_handle=tweet.user.username,
-                    author_created_at=tweet.user.created.replace(tzinfo=UTC) if tweet.user.created else None,
-                    content=re.sub(r"http\S+", "", tweet.rawContent or "").strip(),
-                    lang=tweet.lang or "",
-                    like_count=tweet.likeCount or 0,
-                    retweet_count=tweet.retweetCount or 0,
-                    reply_count=tweet.replyCount or 0,
-                    quote_count=tweet.quoteCount or 0,
-                    posted_at=tweet.date.replace(tzinfo=UTC) if tweet.date else datetime.now(UTC),
-                    source_url=tweet.url or f"https://twitter.com/{tweet.user.username}/status/{tweet.id}",
-                    in_reply_to_id=str(tweet.inReplyToTweetId) if tweet.inReplyToTweetId else None,
-                    hashtags=[ht.lower() for ht in (tweet.hashtags or [])],
-                )
-                if post.content:
+                post = self._tweet_to_post(tweet)
+                if post and post.content:
                     posts.append(post)
         except Exception as exc:
             logger.warning("twscrape search failed for '%s': %s", query, exc)
         return posts
+
+    async def prewarm_xclid(self) -> bool:
+        """Pre-generate XClientTxId so the first API call doesn't timeout."""
+        try:
+            from twscrape.xclid import XClIdGen  # type: ignore[import]
+            from twscrape.queue_client import XClIdGenStore  # type: ignore[import]
+            gen = await XClIdGen.create()
+            # Cache for all accounts in the pool
+            if not self._load() or self._api is None:
+                return False
+            accounts = await self._api.pool.get_all()  # type: ignore[attr-defined]
+            for acc in accounts:
+                XClIdGenStore.items[acc.username] = gen
+            logger.info("twscrape: XClientTxId pre-warmed for %d account(s)", len(accounts))
+            return True
+        except Exception as exc:
+            logger.warning("twscrape: XClientTxId pre-warm failed: %s", exc)
+            return False
+
+    # ── Direct HTTP timeline fetcher (bypasses queue client locking issues) ──
+
+    async def fetch_user_timeline(self, handle: str, limit: int = 30) -> list[ScrapedPost]:
+        """Fetch a user's recent tweets via direct X GraphQL calls.
+
+        Bypasses twscrape's queue client entirely to avoid account-lock issues.
+        Uses the cached XClientTxId from XClIdGenStore if available.
+        """
+        if not self._load() or self._api is None:
+            return []
+
+        try:
+            import json as _json
+            import sqlite3 as _sqlite3
+
+            # Read cookies from DB directly
+            db_candidates = [
+                "/app/twscrape_accounts.db",
+                os.path.join(os.path.dirname(__file__), "../../../../twscrape_accounts.db"),
+                os.path.expanduser("~/.local/share/twscrape/accounts.db"),
+            ]
+            db_path = next((p for p in db_candidates if os.path.exists(p)), None)
+            if not db_path:
+                return []
+
+            conn = _sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT username, cookies FROM accounts WHERE active=1 LIMIT 1")
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                return []
+
+            username, cookies_json = row
+            cookies: dict = _json.loads(cookies_json) if cookies_json else {}
+            if not cookies.get("auth_token"):
+                return []
+
+            # Get XClientTxId (use cache or generate fresh)
+            from twscrape.xclid import XClIdGen  # type: ignore[import]
+            from twscrape.queue_client import XClIdGenStore  # type: ignore[import]
+            if username not in XClIdGenStore.items:
+                try:
+                    gen = await XClIdGen.create()
+                    XClIdGenStore.items[username] = gen
+                except Exception as exc:
+                    logger.warning("XClIdGen.create() failed, proceeding without txid: %s", exc)
+                    XClIdGenStore.items[username] = None  # type: ignore[assignment]
+
+            gen = XClIdGenStore.items.get(username)
+
+            _BEARER = (
+                "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
+                "%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+            )
+            base_headers = {
+                "Authorization": f"Bearer {_BEARER}",
+                "x-csrf-token": cookies.get("ct0", ""),
+                "Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items()),
+                "x-twitter-active-user": "yes",
+                "x-twitter-auth-type": "OAuth2Session",
+                "x-twitter-client-language": "en",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://x.com/",
+                "Origin": "https://x.com",
+            }
+
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                # Step 1: resolve handle → user_id
+                if handle in self._user_id_cache:
+                    user_id = self._user_id_cache[handle]
+                    screen_name = handle
+                else:
+                    from twscrape.api import OP_UserByScreenName  # type: ignore[import]
+                    ub_path = f"/i/api/graphql/{OP_UserByScreenName}"
+                    ub_headers = {**base_headers}
+                    if gen:
+                        ub_headers["x-client-transaction-id"] = gen.calc("GET", ub_path)
+                    resp = await client.get(
+                        f"https://x.com{ub_path}",
+                        params={
+                            "variables": _json.dumps({"screen_name": handle, "withSafetyModeUserFields": True}),
+                            "features": _json.dumps({"hidden_profile_likes_enabled": True, "hidden_profile_subscriptions_enabled": True}),
+                        },
+                        headers=ub_headers,
+                    )
+                    if resp.status_code != 200:
+                        logger.debug("UserByScreenName %s: %d", handle, resp.status_code)
+                        return []
+                    result = resp.json().get("data", {}).get("user", {}).get("result", {})
+                    user_id = result.get("rest_id") or result.get("legacy", {}).get("id_str")
+                    screen_name = result.get("legacy", {}).get("screen_name", handle)
+                    if not user_id:
+                        return []
+                    self._user_id_cache[handle] = user_id  # type: ignore[assignment]
+
+                # Step 2: fetch user tweets
+                from twscrape.api import GQL_FEATURES  # type: ignore[import]
+                from twscrape.api import OP_UserTweets  # type: ignore[import]
+                ut_path = f"/i/api/graphql/{OP_UserTweets}"
+                ut_headers = {**base_headers}
+                if gen:
+                    ut_headers["x-client-transaction-id"] = gen.calc("GET", ut_path)
+
+                variables = {
+                    "userId": str(user_id),
+                    "count": min(limit, 40),
+                    "includePromotedContent": False,
+                    "withQuickPromoteEligibilityTweetFields": True,
+                    "withVoice": True,
+                    "withV2Timeline": True,
+                }
+                resp2 = await client.get(
+                    f"https://x.com{ut_path}",
+                    params={
+                        "variables": _json.dumps(variables),
+                        "features": _json.dumps(GQL_FEATURES),
+                    },
+                    headers=ut_headers,
+                )
+                if resp2.status_code != 200:
+                    logger.debug("UserTweets %s: %d", handle, resp2.status_code)
+                    return []
+
+                data = resp2.json()
+                entries = []
+                # Walk the nested timeline structure
+                # X returns either timeline_v2 or timeline depending on the features flags
+                user_result = data.get("data", {}).get("user", {}).get("result", {})
+                tl = user_result.get("timeline_v2") or user_result.get("timeline") or {}
+                instructions = tl.get("timeline", {}).get("instructions", [])
+                for instruction in instructions:
+                    entries.extend(instruction.get("entries", []))
+
+                posts: list[ScrapedPost] = []
+                now = datetime.now(UTC)
+                for entry in entries:
+                    try:
+                        tweet_data = (
+                            entry.get("content", {})
+                            .get("itemContent", {})
+                            .get("tweet_results", {})
+                            .get("result", {})
+                        )
+                        if not tweet_data or tweet_data.get("__typename") != "Tweet":
+                            continue
+                        legacy = tweet_data.get("legacy", {})
+                        user_legacy = (
+                            tweet_data.get("core", {})
+                            .get("user_results", {})
+                            .get("result", {})
+                            .get("legacy", {})
+                        )
+                        content = re.sub(r"http\S+", "", legacy.get("full_text", "")).strip()
+                        if not content:
+                            continue
+                        post_id = legacy.get("id_str", "")
+                        posted_raw = legacy.get("created_at", "")
+                        posted_at = now
+                        if posted_raw:
+                            try:
+                                posted_at = datetime.strptime(posted_raw, "%a %b %d %H:%M:%S +0000 %Y").replace(tzinfo=UTC)
+                            except ValueError:
+                                pass
+                        author_created_at: datetime | None = None
+                        if user_legacy.get("created_at"):
+                            try:
+                                author_created_at = datetime.strptime(
+                                    user_legacy["created_at"], "%a %b %d %H:%M:%S +0000 %Y"
+                                ).replace(tzinfo=UTC)
+                            except ValueError:
+                                pass
+                        posts.append(ScrapedPost(
+                            post_id=post_id,
+                            author_id=user_legacy.get("id_str", ""),
+                            author_handle=user_legacy.get("screen_name", screen_name),
+                            author_created_at=author_created_at,
+                            content=content,
+                            lang=legacy.get("lang", ""),
+                            like_count=int(legacy.get("favorite_count", 0)),
+                            retweet_count=int(legacy.get("retweet_count", 0)),
+                            reply_count=int(legacy.get("reply_count", 0)),
+                            quote_count=int(legacy.get("quote_count", 0)),
+                            posted_at=posted_at,
+                            source_url=f"https://x.com/{user_legacy.get('screen_name', screen_name)}/status/{post_id}",
+                            in_reply_to_id=legacy.get("in_reply_to_status_id_str"),
+                            hashtags=[ht.get("text", "").lower() for ht in legacy.get("entities", {}).get("hashtags", [])],
+                        ))
+                        if len(posts) >= limit:
+                            break
+                    except Exception as exc:
+                        logger.debug("Tweet parse error: %s", exc)
+                        continue
+
+                logger.info("Direct fetch @%s: %d tweets", handle, len(posts))
+                return posts
+
+        except Exception as exc:
+            logger.warning("Direct fetch_user_timeline failed for @%s: %s", handle, exc)
+            return []
 
 
 class XScraperService:
@@ -365,25 +596,47 @@ class XScraperService:
         return result
 
     async def scrape_queries(self, queries: list[str] | None = None, limit_per_query: int = 30) -> list[ScrapedPost]:
-        """Run all seed queries and return deduplicated posts."""
+        """Run seed queries — tries keyword search first, falls back to guest scraper."""
         targets = queries or SEED_QUERIES
         all_posts: list[ScrapedPost] = []
 
         for query in targets:
-            # Try twscrape first
             posts = await self._twscrape.search(query, limit=limit_per_query)
             if not posts:
-                # Fall back to guest
                 posts = await self._guest.search(query, limit=limit_per_query)
-
             all_posts.extend(posts)
-            await asyncio.sleep(1.5)  # Polite delay between queries
+            await asyncio.sleep(1.5)
 
         return self._dedup(all_posts)
 
-    async def scrape_media_replies(self, limit_per_account: int = 20) -> list[ScrapedPost]:
-        """Scrape reply threads of major Lebanese media accounts."""
+    async def scrape_media_timelines(self, limit_per_account: int = 30) -> list[ScrapedPost]:
+        """Fetch recent tweets from Lebanese media accounts using user_tweets().
+
+        This works reliably even without X search access, as it uses the
+        user timeline endpoint which requires only basic authentication.
+        """
         all_posts: list[ScrapedPost] = []
+        for handle in LEBANESE_MEDIA_ACCOUNTS:
+            posts = await self._twscrape.fetch_user_timeline(handle, limit=limit_per_account)
+            if posts:
+                logger.info("twscrape: fetched %d posts from @%s", len(posts), handle)
+            else:
+                logger.debug("twscrape: no posts from @%s (trying guest)", handle)
+            all_posts.extend(posts)
+            await asyncio.sleep(1.5)
+        return self._dedup(all_posts)
+
+    async def scrape_media_replies(self, limit_per_account: int = 20) -> list[ScrapedPost]:
+        """Scrape reply threads of major Lebanese media accounts.
+
+        Tries user_tweets (reliable) then falls back to guest search.
+        """
+        # Primary: use timeline (works without search access)
+        all_posts = await self.scrape_media_timelines(limit_per_account=limit_per_account)
+        if all_posts:
+            return all_posts
+
+        # Fallback: try search-based approach
         for handle in LEBANESE_MEDIA_ACCOUNTS:
             query = f"to:{handle} lang:ar OR lang:en OR lang:fr"
             posts = await self._twscrape.search(query, limit=limit_per_account)

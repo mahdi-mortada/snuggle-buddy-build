@@ -25,6 +25,15 @@ settings = get_settings()
 _news_refresh_task: asyncio.Task | None = None
 
 
+async def _prewarm_xclid_background(x_scraper_svc) -> None:  # type: ignore[no-untyped-def]
+    """Pre-warm XClientTxId in background so the first scan doesn't timeout."""
+    await asyncio.sleep(5)  # Let other startup tasks finish first
+    try:
+        await x_scraper_svc._twscrape.prewarm_xclid()
+    except Exception as exc:
+        logger.warning("XClientTxId pre-warm background task failed: %s", exc)
+
+
 async def _news_refresh_loop(interval_seconds: int = 300) -> None:
     """Background loop: fetch live news every `interval_seconds` (default 5 min)."""
     while True:
@@ -70,6 +79,9 @@ async def lifespan(app: FastAPI):
     _news_refresh_task = asyncio.create_task(_news_refresh_loop(interval_seconds=300))
     # Start social media hate speech monitor background loop (every 30 minutes)
     from app.services.social_monitor import social_monitor_service
+    from app.services.x_scraper import x_scraper_service
+    # Pre-warm XClientTxId so the first scan doesn't fail/lock the account
+    asyncio.create_task(_prewarm_xclid_background(x_scraper_service))
     await social_monitor_service.start_background_loop()
     # Start Kafka consumer
     await kafka_consumer.start()

@@ -793,6 +793,18 @@ export async function fetchHateSpeechPosts(params: {
   return posts.map(mapHateSpeechPost);
 }
 
+export async function fetchHateSpeechAllPosts(params: {
+  hours?: number;
+  limit?: number;
+}): Promise<HateSpeechPost[]> {
+  const query = new URLSearchParams();
+  if (params.hours !== undefined) query.set("hours", String(params.hours));
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  const qs = query.toString();
+  const posts = await requestBackend<BackendHateSpeechPost[]>(`/api/v1/hate-speech/all${qs ? "?" + qs : ""}`);
+  return posts.map(mapHateSpeechPost);
+}
+
 export async function triggerHateSpeechScan(): Promise<Record<string, unknown>> {
   return requestBackend<Record<string, unknown>>("/api/v1/hate-speech/scan", { method: "POST" });
 }

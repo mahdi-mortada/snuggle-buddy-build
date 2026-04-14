@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import {
   fetchHateSpeechStats,
   fetchHateSpeechPosts,
+  fetchHateSpeechAllPosts,
   triggerHateSpeechScan,
   reviewHateSpeechPost,
   type HateSpeechPost,
@@ -318,28 +319,36 @@ export default function HateSpeechMonitor() {
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('All');
   const [showReviewed, setShowReviewed] = useState<boolean | undefined>(undefined);
   const [minScore, setMinScore] = useState(51);
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const [statsData, postsData] = await Promise.all([
         fetchHateSpeechStats(),
-        fetchHateSpeechPosts({
-          category: categoryFilter === 'All' ? undefined : categoryFilter,
-          minScore,
-          reviewed: showReviewed,
-          limit: 100,
-        }),
+        flaggedOnly
+          ? fetchHateSpeechPosts({
+              category: categoryFilter === 'All' ? undefined : categoryFilter,
+              minScore,
+              reviewed: showReviewed,
+              limit: 100,
+            })
+          : fetchHateSpeechAllPosts({ hours: 24, limit: 200 }),
       ]);
       setHsStats(statsData);
-      setPosts(postsData);
+      // When showing all, optionally filter by category client-side
+      let filtered = postsData;
+      if (!flaggedOnly && categoryFilter !== 'All') {
+        filtered = postsData.filter((p) => p.category === categoryFilter);
+      }
+      setPosts(filtered);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load hate speech data');
     } finally {
       setLoading(false);
     }
-  }, [categoryFilter, minScore, showReviewed]);
+  }, [categoryFilter, minScore, showReviewed, flaggedOnly]);
 
   useEffect(() => {
     void load();
@@ -480,6 +489,19 @@ export default function HateSpeechMonitor() {
         <div className="flex items-center gap-3 flex-wrap">
           <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
 
+          {/* Flagged only toggle */}
+          <button
+            onClick={() => setFlaggedOnly(!flaggedOnly)}
+            className={`flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-lg border transition-colors ${
+              flaggedOnly
+                ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                : 'bg-secondary/30 text-muted-foreground border-border/50 hover:text-foreground'
+            }`}
+          >
+            <ShieldAlert className="w-3 h-3" />
+            {flaggedOnly ? 'Flagged Only' : 'All Posts'}
+          </button>
+
           {/* Category tabs */}
           <div className="flex gap-1 border border-border/50 rounded-lg p-0.5">
             {CATEGORY_FILTERS.map((cat) => {
@@ -545,16 +567,20 @@ export default function HateSpeechMonitor() {
           {loading && (
             <div className="glass-panel p-8 text-center text-sm text-muted-foreground">
               <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-primary" />
-              Loading flagged posts…
+              {flaggedOnly ? 'Loading flagged posts…' : 'Loading scraped posts…'}
             </div>
           )}
 
           {!loading && posts.length === 0 && (
             <div className="glass-panel p-8 text-center space-y-2">
               <CheckCircle2 className="w-8 h-8 text-success mx-auto" />
-              <p className="text-sm font-medium text-foreground">No flagged posts match your filters</p>
+              <p className="text-sm font-medium text-foreground">
+                {flaggedOnly ? 'No flagged posts match your filters' : 'No posts yet — trigger a scan to load real X data'}
+              </p>
               <p className="text-xs text-muted-foreground">
-                Try lowering the minimum score or triggering a new scan.
+                {flaggedOnly
+                  ? 'Try lowering the minimum score or switching to "All Posts".'
+                  : 'Click "Trigger Scan" to scrape Lebanese media accounts on X.'}
               </p>
             </div>
           )}

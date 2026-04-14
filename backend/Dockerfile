@@ -19,5 +19,8 @@ RUN pip install --no-cache-dir --retries 10 --timeout 120 -r requirements.docker
 # Copy application code
 COPY . .
 
+# Patch twscrape to support X's new JS bundling format (2025+)
+RUN python patch_twscrape.py
+
 # Development command (hot-reload). Override in docker-compose for prod or Celery.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
