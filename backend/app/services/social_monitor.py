@@ -77,6 +77,10 @@ class HateSpeechStats:
     top_keywords: list[tuple[str, int]] = field(default_factory=list)
     last_scan_at: datetime | None = None
     accounts_flagged: list[str] = field(default_factory=list)
+    trending_hashtags: list[str] = field(default_factory=list)
+    top_posts_by_engagement: list[str] = field(default_factory=list)  # post ids sorted by engagement
+    # hashtag → top 5 post ids (by engagement) for that hashtag
+    hashtag_top_posts: dict[str, list[str]] = field(default_factory=dict)
 
 
 # ── Demo post definitions ─────────────────────────────────────────────────────
@@ -232,16 +236,28 @@ class SocialMonitorService:
         logger.info("Social monitor: starting X scan")
         scraped: list[ScrapedPost] = []
 
-        # Primary: fetch from media account timelines (reliable even without search access)
+        # Primary: trending Lebanon hashtags → top Arabic tweets by engagement
         try:
-            timeline_posts = await x_scraper_service.scrape_media_timelines(limit_per_account=25)
-            if timeline_posts:
-                logger.info("Social monitor: fetched %d posts from media timelines", len(timeline_posts))
-                scraped.extend(timeline_posts)
+            trending_posts = await x_scraper_service.scrape_trending(max_hashtags=8, tweets_per_tag=20)
+            if trending_posts:
+                logger.info("Social monitor: %d posts from trending hashtags", len(trending_posts))
+                scraped.extend(trending_posts)
         except Exception as exc:
-            logger.warning("Timeline scrape failed: %s", exc)
+            logger.warning("Trending scrape failed: %s", exc)
 
-        # Secondary: keyword search (may be restricted by X)
+        # Secondary: influencer timelines (fallback when search is blocked)
+        if not scraped:
+            try:
+                timeline_posts = await x_scraper_service.scrape_media_timelines(
+                    limit_per_account=25, min_engagement=1
+                )
+                if timeline_posts:
+                    logger.info("Social monitor: %d posts from influencer timelines", len(timeline_posts))
+                    scraped.extend(timeline_posts)
+            except Exception as exc:
+                logger.warning("Timeline scrape failed: %s", exc)
+
+        # Tertiary: keyword search
         if not scraped:
             try:
                 query_posts = await x_scraper_service.scrape_queries()
@@ -388,6 +404,27 @@ class SocialMonitorService:
         if all_posts:
             last_scan = max(p.scraped_at for p in all_posts)
 
+        # Trending hashtags — aggregate from all posts, weighted by engagement
+        hashtag_engagement: dict[str, int] = {}
+        hashtag_posts: dict[str, list[SocialPost]] = {}
+        for p in all_posts:
+            for tag in p.hashtags:
+                if tag:
+                    hashtag_engagement[tag] = hashtag_engagement.get(tag, 0) + p.engagement_total + 1
+                    hashtag_posts.setdefault(tag, []).append(p)
+
+        trending = [tag for tag, _ in sorted(hashtag_engagement.items(), key=lambda x: x[1], reverse=True)[:15]]
+
+        # Build top-5 post IDs per hashtag (by engagement)
+        hashtag_top: dict[str, list[str]] = {}
+        for tag in trending:
+            posts_for_tag = sorted(hashtag_posts.get(tag, []), key=lambda p: p.engagement_total, reverse=True)
+            hashtag_top[tag] = [p.id for p in posts_for_tag[:5]]
+
+        # Top posts by engagement (global)
+        sorted_by_eng = sorted(all_posts, key=lambda p: p.engagement_total, reverse=True)
+        top_eng_ids = [p.id for p in sorted_by_eng[:10]]
+
         return HateSpeechStats(
             total_scraped=len(all_posts),
             total_flagged=len(flagged),
@@ -398,6 +435,9 @@ class SocialMonitorService:
             top_keywords=top_kw,
             last_scan_at=last_scan,
             accounts_flagged=top_accounts,
+            trending_hashtags=trending,
+            top_posts_by_engagement=top_eng_ids,
+            hashtag_top_posts=hashtag_top,
         )
 
     def review_post(self, post_id: str, action: str) -> bool:

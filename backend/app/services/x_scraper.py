@@ -26,36 +26,57 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# ── Lebanese media accounts to monitor replies of ────────────────────────────
+# ── Lebanon WOEID (Yahoo Where On Earth ID) ──────────────────────────────────
+LEBANON_WOEID = 23424873   # Lebanon country
+BEIRUT_WOEID  = 2316588    # Beirut city
 
-LEBANESE_MEDIA_ACCOUNTS = [
-    "LBCI_News",
-    "MTV_Lebanon",
-    "NaharnetAr",
-    "AlJumhuriya",
-    "dailystarleb",
-    "lorientlejour",
-    "961Lebanon",
+# ── Fallback hashtags — used when trending API is unavailable ─────────────────
+# These are consistently popular Lebanese political/social hashtags
+FALLBACK_LB_HASHTAGS = [
+    "لبنان",
+    "بيروت",
+    "حزب_الله",
+    "اللاجئون_السوريون",
+    "الجنوب_اللبناني",
+    "طائفية_لبنان",
+    "الجيش_اللبناني",
+    "الحكومة_اللبنانية",
+    "اسرائيل_لبنان",
+    "ايران_لبنان",
+    "Lebanon",
+    "Beirut",
+    "LebanonWar",
+    "SyrianRefugees",
 ]
 
-# ── Seed search queries — Lebanon hate speech signals ────────────────────────
-# Mix of Arabic, English, French terms around Lebanese political/sectarian content
+# ── Minimum engagement to include a tweet ────────────────────────────────────
+MIN_ENGAGEMENT = 3   # likes + retweets + replies >= this
 
+# ── Influential Lebanese accounts (diverse — not just media) ─────────────────
+# Mix of politicians, activists, journalists, commentators — covers all major voices
+LEBANESE_INFLUENCER_ACCOUNTS = [
+    "LBCI_News",        # LBCI TV — highest volume Arabic news
+    "NaharnetAr",       # Naharnet Arabic
+    "AlJumhuriya",      # Al Jumhuriya newspaper
+    "Gebran_Bassil",    # FPM leader (political)
+    "NassibLahoud",     # Lebanese politician
+    "walid_joumblatt",  # Druze leader
+    "saadhariri",       # Former PM
+    "nbassil",          # Nabih Berri team
+    "Annahar",          # An-Nahar newspaper
+    "MTV_Lebanon",      # MTV Lebanon news
+    "OTV_Lebanon",      # OTV Lebanon
+    "LBC_Group",        # LBC Group
+]
+
+# ── Seed search queries ───────────────────────────────────────────────────────
 SEED_QUERIES = [
-    # Sectarian — Arabic
     "لبنان طائفية -filter:links",
     "حزب الله مسيحيين OR سنة OR درزية",
-    "شيعة سنة لبنان",
-    # Refugee incitement — Arabic
-    "اللاجئين السوريين لبنان ارحلوا OR اخرجوا OR طردهم",
-    "النازحين لبنان",
-    # Political incitement — Arabic/English
-    "لبنان يستحق الموت OR اغتيال OR تصفية",
+    "اللاجئين السوريين لبنان ارحلوا OR اخرجوا",
+    "لبنان يستحق الموت OR اغتيال",
     "lebanon sectarian hate",
-    "lebanon militia attack",
-    # French
     "liban réfugiés sectaire",
-    "liban haine politique",
 ]
 
 # ── X Guest Token Scraper (no account needed, limited) ───────────────────────
@@ -356,6 +377,235 @@ class TwscrapeScraper:
             logger.warning("twscrape search failed for '%s': %s", query, exc)
         return posts
 
+    async def fetch_trending_hashtags(self, woeid: int = LEBANON_WOEID) -> list[str]:
+        """Fetch trending hashtags for a location via the v1.1 trends API.
+
+        Tries authenticated call first (cookies), falls back to Bearer-only.
+        Returns a list of hashtag strings (without #).
+        """
+        headers_bearer = {
+            "Authorization": f"Bearer {_X_BEARER}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        }
+
+        # Try with auth cookies first
+        try:
+            if not self._load() or self._api is None:
+                raise RuntimeError("no api")
+            import json as _json, sqlite3 as _sqlite3
+            db_candidates = [
+                "/app/twscrape_accounts.db",
+                os.path.join(os.path.dirname(__file__), "../../../../twscrape_accounts.db"),
+                os.path.expanduser("~/.local/share/twscrape/accounts.db"),
+            ]
+            db_path = next((p for p in db_candidates if os.path.exists(p)), None)
+            if db_path:
+                conn = _sqlite3.connect(db_path)
+                cur = conn.cursor()
+                cur.execute("SELECT cookies FROM accounts WHERE active=1 LIMIT 1")
+                row = cur.fetchone()
+                conn.close()
+                if row and row[0]:
+                    cookies: dict = _json.loads(row[0])
+                    if cookies.get("auth_token"):
+                        auth_headers = {
+                            **headers_bearer,
+                            "x-csrf-token": cookies.get("ct0", ""),
+                            "Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items()),
+                            "x-twitter-auth-type": "OAuth2Session",
+                            "x-twitter-active-user": "yes",
+                        }
+                        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                            resp = await client.get(
+                                f"https://api.twitter.com/1.1/trends/place.json?id={woeid}",
+                                headers=auth_headers,
+                            )
+                            if resp.status_code == 200:
+                                trends = resp.json()
+                                if trends and isinstance(trends, list):
+                                    tags = [
+                                        t["name"].lstrip("#")
+                                        for t in trends[0].get("trends", [])
+                                        if t.get("name")
+                                    ]
+                                    logger.info("Trending hashtags (Lebanon): %s", tags[:8])
+                                    return tags
+        except Exception as exc:
+            logger.debug("Trends auth call failed: %s", exc)
+
+        # Bearer-only fallback (works for some regions)
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"https://api.twitter.com/1.1/trends/place.json?id={woeid}",
+                    headers=headers_bearer,
+                )
+                if resp.status_code == 200:
+                    trends = resp.json()
+                    if trends and isinstance(trends, list):
+                        tags = [
+                            t["name"].lstrip("#")
+                            for t in trends[0].get("trends", [])
+                            if t.get("name")
+                        ]
+                        logger.info("Trending hashtags (Bearer, Lebanon): %s", tags[:8])
+                        return tags
+        except Exception as exc:
+            logger.debug("Trends bearer call failed: %s", exc)
+
+        logger.info("Trends API unavailable — using fallback hashtags")
+        return []
+
+    async def search_hashtag_top(self, hashtag: str, limit: int = 20) -> list[ScrapedPost]:
+        """Search for top/popular tweets with a given hashtag via direct HTTP.
+
+        Uses SearchTimeline with product='Top' — may work better than 'Latest'
+        for non-phone-verified accounts.
+        """
+        if not self._load() or self._api is None:
+            return []
+        try:
+            import json as _json, sqlite3 as _sqlite3
+            db_candidates = [
+                "/app/twscrape_accounts.db",
+                os.path.join(os.path.dirname(__file__), "../../../../twscrape_accounts.db"),
+                os.path.expanduser("~/.local/share/twscrape/accounts.db"),
+            ]
+            db_path = next((p for p in db_candidates if os.path.exists(p)), None)
+            if not db_path:
+                return []
+
+            conn = _sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT username, cookies FROM accounts WHERE active=1 LIMIT 1")
+            row = cur.fetchone()
+            conn.close()
+            if not row or not row[1]:
+                return []
+
+            username, cookies_json = row
+            cookies: dict = _json.loads(cookies_json)
+            if not cookies.get("auth_token"):
+                return []
+
+            from twscrape.xclid import XClIdGen  # type: ignore[import]
+            from twscrape.queue_client import XClIdGenStore  # type: ignore[import]
+            if username not in XClIdGenStore.items:
+                try:
+                    gen = await XClIdGen.create()
+                    XClIdGenStore.items[username] = gen
+                except Exception:
+                    XClIdGenStore.items[username] = None  # type: ignore[assignment]
+
+            gen = XClIdGenStore.items.get(username)
+
+            # SearchTimeline GraphQL endpoint
+            from twscrape.api import OP_SearchTimeline, GQL_FEATURES  # type: ignore[import]
+            st_path = f"/i/api/graphql/{OP_SearchTimeline}"
+            headers = {
+                "Authorization": f"Bearer {_X_BEARER}",
+                "x-csrf-token": cookies.get("ct0", ""),
+                "Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items()),
+                "x-twitter-active-user": "yes",
+                "x-twitter-auth-type": "OAuth2Session",
+                "x-twitter-client-language": "ar",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": "https://x.com/",
+                "Origin": "https://x.com",
+            }
+            if gen:
+                headers["x-client-transaction-id"] = gen.calc("GET", st_path)
+
+            query = f"#{hashtag} lang:ar" if not hashtag.startswith("#") else f"{hashtag} lang:ar"
+            variables = {
+                "rawQuery": query,
+                "count": min(limit, 20),
+                "querySource": "hashtag_click",
+                "product": "Top",  # Top tweets (most engagement)
+            }
+
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"https://x.com{st_path}",
+                    params={
+                        "variables": _json.dumps(variables),
+                        "features": _json.dumps(GQL_FEATURES),
+                    },
+                    headers=headers,
+                )
+                if resp.status_code != 200:
+                    logger.debug("SearchTimeline #%s: %d", hashtag, resp.status_code)
+                    return []
+
+                data = resp.json()
+                instructions = (
+                    data.get("data", {})
+                    .get("search_by_raw_query", {})
+                    .get("search_timeline", {})
+                    .get("timeline", {})
+                    .get("instructions", [])
+                )
+                posts: list[ScrapedPost] = []
+                now = datetime.now(UTC)
+                for instruction in instructions:
+                    for entry in instruction.get("entries", []):
+                        try:
+                            tweet_data = (
+                                entry.get("content", {})
+                                .get("itemContent", {})
+                                .get("tweet_results", {})
+                                .get("result", {})
+                            )
+                            if not tweet_data or tweet_data.get("__typename") != "Tweet":
+                                continue
+                            legacy = tweet_data.get("legacy", {})
+                            user_legacy = (
+                                tweet_data.get("core", {})
+                                .get("user_results", {})
+                                .get("result", {})
+                                .get("legacy", {})
+                            )
+                            content = re.sub(r"http\S+", "", legacy.get("full_text", "")).strip()
+                            if not content:
+                                continue
+                            post_id = legacy.get("id_str", "")
+                            likes = int(legacy.get("favorite_count", 0))
+                            rts = int(legacy.get("retweet_count", 0))
+                            replies = int(legacy.get("reply_count", 0))
+                            if likes + rts + replies < MIN_ENGAGEMENT:
+                                continue
+                            posted_raw = legacy.get("created_at", "")
+                            posted_at = now
+                            if posted_raw:
+                                try:
+                                    posted_at = datetime.strptime(posted_raw, "%a %b %d %H:%M:%S +0000 %Y").replace(tzinfo=UTC)
+                                except ValueError:
+                                    pass
+                            handle = user_legacy.get("screen_name", "")
+                            posts.append(ScrapedPost(
+                                post_id=post_id,
+                                author_id=user_legacy.get("id_str", ""),
+                                author_handle=handle,
+                                content=content,
+                                lang=legacy.get("lang", "ar"),
+                                like_count=likes,
+                                retweet_count=rts,
+                                reply_count=replies,
+                                quote_count=int(legacy.get("quote_count", 0)),
+                                posted_at=posted_at,
+                                source_url=f"https://x.com/{handle}/status/{post_id}",
+                                hashtags=[ht.get("text", "").lower() for ht in legacy.get("entities", {}).get("hashtags", [])],
+                            ))
+                            if len(posts) >= limit:
+                                break
+                        except Exception:
+                            continue
+                logger.info("SearchTimeline #%s → %d posts", hashtag, len(posts))
+                return posts
+        except Exception as exc:
+            logger.debug("search_hashtag_top failed for #%s: %s", hashtag, exc)
+            return []
+
     async def prewarm_xclid(self) -> bool:
         """Pre-generate XClientTxId so the first API call doesn't timeout."""
         try:
@@ -575,6 +825,179 @@ class TwscrapeScraper:
             logger.warning("Direct fetch_user_timeline failed for @%s: %s", handle, exc)
             return []
 
+    async def fetch_tweet_replies(self, tweet_id: str, limit: int = 20) -> list[ScrapedPost]:
+        """Fetch replies to a tweet via TweetDetail GraphQL, sorted by most liked."""
+        if not self._load() or self._api is None:
+            return []
+        try:
+            import json as _json, sqlite3 as _sqlite3
+
+            db_candidates = [
+                "/app/twscrape_accounts.db",
+                os.path.join(os.path.dirname(__file__), "../../../../twscrape_accounts.db"),
+                os.path.expanduser("~/.local/share/twscrape/accounts.db"),
+            ]
+            db_path = next((p for p in db_candidates if os.path.exists(p)), None)
+            if not db_path:
+                return []
+
+            conn = _sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT username, cookies FROM accounts WHERE active=1 LIMIT 1")
+            row = cur.fetchone()
+            conn.close()
+            if not row or not row[1]:
+                return []
+
+            username, cookies_json = row
+            cookies: dict = _json.loads(cookies_json)
+            if not cookies.get("auth_token"):
+                return []
+
+            from twscrape.xclid import XClIdGen  # type: ignore[import]
+            from twscrape.queue_client import XClIdGenStore  # type: ignore[import]
+            if username not in XClIdGenStore.items:
+                try:
+                    gen = await XClIdGen.create()
+                    XClIdGenStore.items[username] = gen
+                except Exception:
+                    XClIdGenStore.items[username] = None  # type: ignore[assignment]
+            gen = XClIdGenStore.items.get(username)
+
+            from twscrape.api import OP_TweetDetail, GQL_FEATURES  # type: ignore[import]
+            td_path = f"/i/api/graphql/{OP_TweetDetail}"
+            headers = {
+                "Authorization": f"Bearer {_X_BEARER}",
+                "x-csrf-token": cookies.get("ct0", ""),
+                "Cookie": "; ".join(f"{k}={v}" for k, v in cookies.items()),
+                "x-twitter-active-user": "yes",
+                "x-twitter-auth-type": "OAuth2Session",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Referer": f"https://x.com/i/web/status/{tweet_id}",
+                "Origin": "https://x.com",
+            }
+            if gen:
+                headers["x-client-transaction-id"] = gen.calc("GET", td_path)
+
+            variables = {
+                "focalTweetId": tweet_id,
+                "count": 40,
+                "referrer": "tweet",
+                "with_rux_injections": False,
+                "rankingMode": "Relevance",
+                "includePromotedContent": False,
+                "withCommunity": True,
+                "withQuickPromoteEligibilityTweetFields": True,
+                "withBirdwatchNotes": True,
+                "withVoice": True,
+            }
+            fieldtoggles = {
+                "withArticleRichContentState": True,
+                "withArticlePlainText": False,
+                "withGrokAnalyze": False,
+                "withDisallowedReplyControls": False,
+            }
+
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"https://x.com{td_path}",
+                    params={
+                        "variables": _json.dumps(variables),
+                        "features": _json.dumps(GQL_FEATURES),
+                        "fieldToggles": _json.dumps(fieldtoggles),
+                    },
+                    headers=headers,
+                )
+                if resp.status_code != 200:
+                    logger.debug("TweetDetail %s: %d — %s", tweet_id, resp.status_code, resp.text[:200])
+                    return []
+
+                data = resp.json()
+                instructions = (
+                    data.get("data", {})
+                    .get("threaded_conversation_with_injections_v2", {})
+                    .get("instructions", [])
+                )
+
+                replies: list[ScrapedPost] = []
+                now = datetime.now(UTC)
+
+                for instruction in instructions:
+                    for entry in instruction.get("entries", []):
+                        entry_id = entry.get("entryId", "")
+                        # Skip the focal tweet itself
+                        if entry_id == f"tweet-{tweet_id}":
+                            continue
+
+                        # Replies come in two forms: direct entries or as items in a thread module
+                        items_to_check = []
+                        content = entry.get("content", {})
+                        if content.get("entryType") == "TimelineTimelineModule":
+                            for item in content.get("items", []):
+                                items_to_check.append(item.get("item", {}))
+                        else:
+                            items_to_check.append(content)
+
+                        for item_content in items_to_check:
+                            try:
+                                tweet_data = (
+                                    item_content.get("itemContent", {})
+                                    .get("tweet_results", {})
+                                    .get("result", {})
+                                )
+                                if not tweet_data or tweet_data.get("__typename") != "Tweet":
+                                    continue
+                                legacy = tweet_data.get("legacy", {})
+                                # Only include replies (in_reply_to_status_id_str set)
+                                if legacy.get("in_reply_to_status_id_str") != tweet_id:
+                                    continue
+                                user_legacy = (
+                                    tweet_data.get("core", {})
+                                    .get("user_results", {})
+                                    .get("result", {})
+                                    .get("legacy", {})
+                                )
+                                content_text = re.sub(r"http\S+", "", legacy.get("full_text", "")).strip()
+                                if not content_text:
+                                    continue
+                                rid = legacy.get("id_str", "")
+                                if not rid:
+                                    continue
+                                posted_raw = legacy.get("created_at", "")
+                                posted_at = now
+                                if posted_raw:
+                                    try:
+                                        posted_at = datetime.strptime(posted_raw, "%a %b %d %H:%M:%S +0000 %Y").replace(tzinfo=UTC)
+                                    except ValueError:
+                                        pass
+                                handle = user_legacy.get("screen_name", "")
+                                replies.append(ScrapedPost(
+                                    post_id=rid,
+                                    author_id=user_legacy.get("id_str", ""),
+                                    author_handle=handle,
+                                    content=content_text,
+                                    lang=legacy.get("lang", ""),
+                                    like_count=int(legacy.get("favorite_count", 0)),
+                                    retweet_count=int(legacy.get("retweet_count", 0)),
+                                    reply_count=int(legacy.get("reply_count", 0)),
+                                    quote_count=int(legacy.get("quote_count", 0)),
+                                    posted_at=posted_at,
+                                    source_url=f"https://x.com/{handle}/status/{rid}",
+                                    in_reply_to_id=tweet_id,
+                                    hashtags=[ht.get("text", "").lower() for ht in legacy.get("entities", {}).get("hashtags", [])],
+                                ))
+                            except Exception:
+                                continue
+
+                # Sort by most liked
+                replies.sort(key=lambda r: r.like_count, reverse=True)
+                logger.info("TweetDetail %s → %d replies", tweet_id, len(replies))
+                return replies[:limit]
+
+        except Exception as exc:
+            logger.warning("fetch_tweet_replies failed for %s: %s", tweet_id, exc)
+            return []
+
 
 class XScraperService:
     """Unified X scraping service — tries twscrape first, falls back to guest."""
@@ -609,22 +1032,87 @@ class XScraperService:
 
         return self._dedup(all_posts)
 
-    async def scrape_media_timelines(self, limit_per_account: int = 30) -> list[ScrapedPost]:
-        """Fetch recent tweets from Lebanese media accounts using user_tweets().
+    async def scrape_trending(self, max_hashtags: int = 10, tweets_per_tag: int = 20) -> list[ScrapedPost]:
+        """Primary scraping strategy: trending Lebanon hashtags + top tweets.
 
-        This works reliably even without X search access, as it uses the
-        user timeline endpoint which requires only basic authentication.
+        Strategy:
+        1. Fetch trending hashtags for Lebanon (v1.1 trends API or fallback list)
+        2. Try SearchTimeline (product=Top) for each hashtag — works if account is phone-verified
+        3. Fallback: scrape influencer timelines, then index posts by their hashtags
+        Returns posts tagged with `_trending_tag` attribute set so social_monitor
+        can group them.
+        """
+        # Step 1: get trending hashtags for Lebanon
+        trending = await self._twscrape.fetch_trending_hashtags(LEBANON_WOEID)
+        if not trending:
+            trending = list(FALLBACK_LB_HASHTAGS)
+            logger.info("Trends API unavailable — using %d fallback hashtags", len(trending))
+        else:
+            logger.info("Lebanon trends: %s", trending[:10])
+            # Merge with fallback to ensure coverage
+            seen = {t.lower() for t in trending}
+            for tag in FALLBACK_LB_HASHTAGS:
+                if tag.lower() not in seen:
+                    trending.append(tag)
+
+        hashtags_to_scan = trending[:max_hashtags]
+
+        # Step 2a: try SearchTimeline for each hashtag (requires phone-verified account)
+        search_posts: list[ScrapedPost] = []
+        search_succeeded = False
+        for tag in hashtags_to_scan:
+            posts = await self._twscrape.search_hashtag_top(tag, limit=tweets_per_tag)
+            posts = [p for p in posts if p.engagement_total >= MIN_ENGAGEMENT]
+            if posts:
+                search_succeeded = True
+                logger.info("#%s → %d posts via search", tag, len(posts))
+            search_posts.extend(posts)
+            await asyncio.sleep(0.8)
+
+        if search_succeeded and search_posts:
+            deduped = self._dedup(search_posts)
+            deduped.sort(key=lambda p: p.engagement_total, reverse=True)
+            return deduped
+
+        # Step 2b: fallback — scrape broad account timelines, index by hashtag
+        logger.info("SearchTimeline unavailable — using timeline hashtag indexing strategy")
+        timeline_posts = await self.scrape_media_timelines(limit_per_account=40, min_engagement=MIN_ENGAGEMENT)
+
+        # Keep only posts that contain at least one of the trending hashtags
+        tag_set = {t.lower().lstrip("#") for t in hashtags_to_scan}
+        tagged: list[ScrapedPost] = []
+        for p in timeline_posts:
+            post_tags = {h.lower().lstrip("#") for h in p.hashtags}
+            if post_tags & tag_set:  # intersection
+                tagged.append(p)
+
+        # If too few tagged posts, include all timeline posts (hashtags are sparse in news)
+        if len(tagged) < 10:
+            tagged = timeline_posts
+
+        tagged.sort(key=lambda p: p.engagement_total, reverse=True)
+        return tagged
+
+    async def scrape_media_timelines(self, limit_per_account: int = 30, min_engagement: int = 0) -> list[ScrapedPost]:
+        """Fetch recent tweets from Lebanese influencer accounts.
+
+        Used as a fallback when trending search is unavailable.
+        Optionally filters by min_engagement.
         """
         all_posts: list[ScrapedPost] = []
-        for handle in LEBANESE_MEDIA_ACCOUNTS:
+        for handle in LEBANESE_INFLUENCER_ACCOUNTS:
             posts = await self._twscrape.fetch_user_timeline(handle, limit=limit_per_account)
+            if min_engagement > 0:
+                posts = [p for p in posts if p.engagement_total >= min_engagement]
             if posts:
                 logger.info("twscrape: fetched %d posts from @%s", len(posts), handle)
-            else:
-                logger.debug("twscrape: no posts from @%s (trying guest)", handle)
             all_posts.extend(posts)
             await asyncio.sleep(1.5)
         return self._dedup(all_posts)
+
+    async def fetch_tweet_replies(self, tweet_id: str, limit: int = 10) -> list[ScrapedPost]:
+        """Return the most-liked replies to a tweet (from TweetDetail GraphQL)."""
+        return await self._twscrape.fetch_tweet_replies(tweet_id, limit=limit)
 
     async def scrape_media_replies(self, limit_per_account: int = 20) -> list[ScrapedPost]:
         """Scrape reply threads of major Lebanese media accounts.

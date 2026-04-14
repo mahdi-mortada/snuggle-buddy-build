@@ -62,6 +62,22 @@ class HateSpeechStatsOut(BaseModel):
     top_keywords: list[list]
     last_scan_at: str | None
     accounts_flagged: list[str]
+    trending_hashtags: list[str] = []
+    top_posts_by_engagement: list[str] = []
+    hashtag_top_posts: dict[str, list[str]] = {}
+
+
+class ReplyOut(BaseModel):
+    id: str
+    author_handle: str
+    content: str
+    language: str
+    like_count: int
+    retweet_count: int
+    reply_count: int
+    engagement_total: int
+    posted_at: str
+    source_url: str
 
 
 class AnalyzeRequest(BaseModel):
@@ -131,6 +147,9 @@ async def get_hate_speech_stats(
         top_keywords=[list(item) for item in stats.top_keywords],
         last_scan_at=stats.last_scan_at.isoformat() if stats.last_scan_at else None,
         accounts_flagged=stats.accounts_flagged,
+        trending_hashtags=stats.trending_hashtags,
+        top_posts_by_engagement=stats.top_posts_by_engagement,
+        hashtag_top_posts=stats.hashtag_top_posts,
     ))
 
 
@@ -188,6 +207,40 @@ async def review_post(
     if not ok:
         raise HTTPException(status_code=404, detail="Post not found")
     return ApiResponse(data={"post_id": post_id, "action": body.action})
+
+
+@router.get("/posts/{post_id}/replies", response_model=ApiResponse[list[ReplyOut]])
+async def get_post_replies(
+    post_id: str,
+    limit: int = Query(10, ge=1, le=30),
+    _user: UserRecord = Depends(get_current_user),
+) -> ApiResponse[list[ReplyOut]]:
+    """Fetch most-liked replies for a post via X TweetDetail API."""
+    # post_id format: "x:1234567890"
+    tweet_id = post_id.removeprefix("x:")
+    try:
+        from app.services.x_scraper import x_scraper_service
+        raw_replies = await x_scraper_service.fetch_tweet_replies(tweet_id, limit=limit)
+    except Exception as exc:
+        logger.exception("Failed to fetch replies for %s", post_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    replies = [
+        ReplyOut(
+            id=f"x:{r.post_id}",
+            author_handle=r.author_handle,
+            content=r.content,
+            language=r.lang,
+            like_count=r.like_count,
+            retweet_count=r.retweet_count,
+            reply_count=r.reply_count,
+            engagement_total=r.engagement_total,
+            posted_at=r.posted_at.isoformat(),
+            source_url=r.source_url,
+        )
+        for r in raw_replies
+    ]
+    return ApiResponse(data=replies)
 
 
 @router.post("/analyze", response_model=ApiResponse[AnalyzeResponse])

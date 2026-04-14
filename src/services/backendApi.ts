@@ -694,6 +694,22 @@ export type HateSpeechStats = {
   topKeywords: [string, number][];
   lastScanAt: string | null;
   accountsFlagged: string[];
+  trendingHashtags: string[];
+  topPostsByEngagement: string[];
+  hashtagTopPosts: Record<string, string[]>;
+};
+
+export type HateSpeechReply = {
+  id: string;
+  authorHandle: string;
+  content: string;
+  language: string;
+  likeCount: number;
+  retweetCount: number;
+  replyCount: number;
+  engagementTotal: number;
+  postedAt: string;
+  sourceUrl: string;
 };
 
 type BackendHateSpeechPost = {
@@ -732,6 +748,9 @@ type BackendHateSpeechStats = {
   top_keywords: [string, number][];
   last_scan_at: string | null;
   accounts_flagged: string[];
+  trending_hashtags?: string[];
+  top_posts_by_engagement?: string[];
+  hashtag_top_posts?: Record<string, string[]>;
 };
 
 function mapHateSpeechPost(post: BackendHateSpeechPost): HateSpeechPost {
@@ -774,6 +793,9 @@ export async function fetchHateSpeechStats(): Promise<HateSpeechStats> {
     topKeywords: data.top_keywords,
     lastScanAt: data.last_scan_at,
     accountsFlagged: data.accounts_flagged,
+    trendingHashtags: data.trending_hashtags ?? [],
+    topPostsByEngagement: data.top_posts_by_engagement ?? [],
+    hashtagTopPosts: data.hashtag_top_posts ?? {},
   };
 }
 
@@ -818,4 +840,35 @@ export async function reviewHateSpeechPost(
     { method: "POST", body: JSON.stringify({ action }) },
   );
   return { postId: result.post_id, action: result.action };
+}
+
+type BackendReply = {
+  id: string;
+  author_handle: string;
+  content: string;
+  language: string;
+  like_count: number;
+  retweet_count: number;
+  reply_count: number;
+  engagement_total: number;
+  posted_at: string;
+  source_url: string;
+};
+
+export async function fetchHateSpeechReplies(postId: string, limit = 10): Promise<HateSpeechReply[]> {
+  const replies = await requestBackend<BackendReply[]>(
+    `/api/v1/hate-speech/posts/${encodeURIComponent(postId)}/replies?limit=${limit}`,
+  );
+  return replies.map((r) => ({
+    id: r.id,
+    authorHandle: r.author_handle,
+    content: r.content,
+    language: r.language,
+    likeCount: r.like_count,
+    retweetCount: r.retweet_count,
+    replyCount: r.reply_count,
+    engagementTotal: r.engagement_total,
+    postedAt: r.posted_at,
+    sourceUrl: r.source_url,
+  }));
 }
