@@ -1,5 +1,10 @@
 # CrisisShield / AMAN — Complete Project Documentation
-## (Read this at the start of every new chat session)
+
+> **NEW CHAT? START HERE.**
+> This file is the single source of truth for every decision, fix, and feature built on this project.
+> Read sections 1–4 for orientation, then jump to section 17 for the latest changes.
+> GitHub repo: https://github.com/mahdi-mortada/snuggle-buddy-build
+> Active branch with pending PR: `fix-telegram-validation`
 
 ---
 
@@ -713,3 +718,132 @@ PostgreSQL is accessible from the host at `localhost:5433` (Docker maps 5433 →
 
 **CRITICAL:** Never push directly to `main`. Always create a feature branch, push that branch, then open a PR on GitHub for review and merge. This rule applies to all future changes.
 - `src/pages/Dashboard.tsx` — passes acknowledgeAlert to DashboardLayout
+
+---
+
+## 17. Post-Build Fixes — April 2026 (Session 2)
+
+Everything below was built after Section 16. All changes are on branch **`fix-telegram-validation`** (pending PR merge into `main`).
+
+---
+
+### 17.1 Telegram Channel Validation — No API Required
+
+**Problem:** Adding a source in Official Feeds gave: *"Telegram validation is unavailable because Telethon is not installed"*. Telethon requires an API_ID, API_HASH and a session string that many users cannot obtain.
+
+**Solution — two-tier validation in `backend/app/services/telegram_client.py`:**
+
+1. **HTTP fallback (default when no credentials):** Fetches `https://t.me/s/{username}`. If Telegram keeps the response on the `/s/` URL → channel has a public web preview → extracts real title from `og:title` and accepts it. If Telegram redirects away from `/s/` (no web preview) → accepts the channel with username as display name.
+
+2. **Telethon (primary when credentials configured):** Uses real Telegram MTProto API for validated channel names and real integer telegram_ids.
+
+**Telethon credentials now configured in `backend/.env`:**
+```env
+TELEGRAM_API_ID=34716392
+TELEGRAM_API_HASH=3f673040bbbfb24876f9980fb6eee372
+TELEGRAM_SESSION_STRING=1BJWap1wBuzWc0THbh7Q8...  # (real session, keep secret)
+TELEGRAM_REQUEST_TIMEOUT_SECONDS=10
+```
+
+**New file:** `backend/scripts/gen_telegram_session.py` — run once locally to regenerate the session string if it expires:
+```bash
+pip install telethon
+python backend/scripts/gen_telegram_session.py
+# Enter phone number → enter Telegram code → copy printed SESSION_STRING into .env
+```
+
+**`backend/requirements.docker.txt`** — added `Telethon>=1.37,<2.0` so Docker image has Telethon available.
+
+---
+
+### 17.2 Official Feeds — Custom Sources Always Show Posts
+
+**Problem:** Alert-style channels (e.g. `redlinkleb` — Red Alert Lebanon) post short messages using only Arabic hashtags + emojis like `⭕️ 🛩 #مسير #صريفا`. The Lebanon-relevance + keyword filter in `official_feeds.py` dropped all their posts silently.
+
+**Root fix in `backend/app/services/official_feeds.py` — `_enrich_post()`:**
+
+```python
+# Custom sources (user-added) → always show posts, skip all filters
+if not post.is_custom:
+    if not self._is_lebanon_relevant(post.content):
+        return None
+
+# Keyword fallback: use hashtags when no category keywords match
+if not keywords:
+    keywords = self._extract_hashtags(post.content)[:8]
+
+# Only drop keyword-empty posts for default sources, never for custom
+if not keywords and not post.is_custom:
+    return None
+```
+
+**Also fixed `_is_lebanon_relevant()`** — normalises `_` to space before checking, so `#جنوب_لبنان` matches the keyword `جنوب لبنان`.
+
+**Rule going forward:** Any channel added via "Add Source" (`is_custom=True`) will always have all its posts shown, regardless of language, format, or topic. Default official sources (LBCI, Al Jadeed, etc.) still go through Lebanon-relevance and keyword filtering.
+
+---
+
+### 17.3 Incident Map — Category Icons + Backend-Based Pin Placement
+
+**Problem 1 — Wrong icons:** Map had only 4 generic marker kinds (`fire`, `conflict`, `crime`, `default`). All Arabic alert posts got `default` (blue pin) regardless of content.
+
+**Problem 2 — Wrong pin placement:** The frontend re-analysed text locally with basic keyword matching and placed pins based on town name matches. A post about "Yaroun" could get placed at the wrong coordinates if the OSM scan matched a different town.
+
+**Fix — `src/pages/IncidentMap.tsx`:**
+
+**12 category-specific marker icons:**
+| Kind | Emoji | Color | Triggered by |
+|------|-------|-------|--------------|
+| `violence` | ⚔️ | Red | category=violence |
+| `armed_conflict` | 💥 | Dark Red | category=armed_conflict |
+| `terrorism` | 💣 | Crimson | category=terrorism |
+| `protest` | ✊ | Amber | category=protest |
+| `natural_disaster` | 🌊 | Cyan | category=natural_disaster |
+| `fire` | 🔥 | Orange | text: fire/blaze/حريق (sub-refinement) |
+| `infrastructure` | ⚡ | Purple | category=infrastructure |
+| `health` | 🏥 | Green | category=health |
+| `cyber` | 💻 | Indigo | category=cyber |
+| `drone` | 🛩️ | Rose | text: drone/uav/مسير (sub-refinement) |
+| `crime` | 🚨 | Amber | text: crime/robbery/shooting |
+| `default` | 📍 | Blue | fallback |
+
+**Pin placement priority:**
+1. Use backend-provided `incident.location` / `feed.location` (lat/lng already validated by NLP pipeline + location resolver)
+2. Fall back to OSM text matching only if backend coordinates are missing or outside Lebanon bounds
+3. `isFiniteCoordinate()` gate: only accepts lat 33.0–34.9, lng 35.0–36.9
+
+**`src/types/crisis.ts`** — `OfficialFeedPost` now includes: `category`, `severity`, `region`, `location`, `locationName`, `riskScore`, `keywords`, `isSafetyRelevant`
+
+**`src/services/backendApi.ts`** — `mapOfficialFeedPost()` now maps all new backend fields to the frontend type.
+
+**Popup now shows:** colored dot + category label (e.g. "🔴 Armed Conflict · telegram") instead of just "Type: telegram".
+
+---
+
+### 17.4 Current Git State
+
+| Branch | Status |
+|--------|--------|
+| `main` | Last merged: original build phases 1–8 + Section 16 fixes |
+| `fix-telegram-validation` | **5 commits ahead of main — PENDING PR** |
+
+**PR URL:** https://github.com/mahdi-mortada/snuggle-buddy-build/pull/new/fix-telegram-validation
+
+**Commits on the branch (oldest → newest):**
+1. `fix: replace Telethon with HTTP-based Telegram channel validation`
+2. `chore: add Telegram session string generator script`
+3. `fix: show posts from alert-style Telegram channels (e.g. Red Alert Lebanon)`
+4. `fix: always show posts from user-added (custom) sources without filtering`
+5. `feat: category-specific map icons and backend-based pin placement`
+
+**To resume work:** checkout `fix-telegram-validation`, or merge the PR first then branch off `main`.
+
+---
+
+### 17.5 Known State After Session 2
+
+- Docker is running all services on the user's machine
+- `redlinkleb` (Red Alert Lebanon) was added as a custom source and is showing posts correctly
+- Telethon credentials are live in `backend/.env` (not committed to git — .env is gitignored)
+- `backend/requirements.docker.txt` has Telethon so it is installed in the Docker image
+- The `.env` file must never be committed — it contains real Telegram session string and API key
