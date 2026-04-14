@@ -9,6 +9,7 @@ import Alerts from "./pages/Alerts";
 import OfficialFeeds from "./pages/OfficialFeeds";
 import Login from "./pages/Login";
 import SettingsPage from "./pages/SettingsPage";
+import HateSpeechMonitor from "./pages/HateSpeechMonitor";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,6 +25,7 @@ const App = () => (
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/official-feeds" element={<OfficialFeeds />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/hate-speech" element={<HateSpeechMonitor />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="*" element={<NotFound />} />

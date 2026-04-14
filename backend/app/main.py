@@ -68,6 +68,9 @@ async def lifespan(app: FastAPI):
         logger.warning("Startup live news fetch failed (continuing): %s", exc)
     # Start background news refresh loop (every 5 minutes, independent of Celery)
     _news_refresh_task = asyncio.create_task(_news_refresh_loop(interval_seconds=300))
+    # Start social media hate speech monitor background loop (every 30 minutes)
+    from app.services.social_monitor import social_monitor_service
+    await social_monitor_service.start_background_loop()
     # Start Kafka consumer
     await kafka_consumer.start()
     yield

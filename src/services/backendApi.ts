@@ -655,3 +655,155 @@ export async function fetchBackendLiveIncidents(limit = 25): Promise<Incident[]>
     .map(mapIncident)
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 }
+
+// ── Hate Speech Monitor ───────────────────────────────────────────────────────
+
+export type HateSpeechPost = {
+  id: string;
+  platform: string;
+  authorHandle: string;
+  authorAgeDays: number | null;
+  content: string;
+  language: string;
+  hateScore: number;
+  category: string;
+  categoryLabel: string;
+  isFlagged: boolean;
+  keywordMatches: string[];
+  modelConfidence: number;
+  likeCount: number;
+  retweetCount: number;
+  replyCount: number;
+  engagementTotal: number;
+  postedAt: string;
+  scrapedAt: string;
+  sourceUrl: string;
+  hashtags: string[];
+  reviewed: boolean;
+  reviewAction: string;
+};
+
+export type HateSpeechStats = {
+  totalScraped: number;
+  totalFlagged: number;
+  flaggedLast24h: number;
+  flaggedLast1h: number;
+  byCategory: Record<string, number>;
+  byCategoryLabels: Record<string, string>;
+  byLanguage: Record<string, number>;
+  topKeywords: [string, number][];
+  lastScanAt: string | null;
+  accountsFlagged: string[];
+};
+
+type BackendHateSpeechPost = {
+  id: string;
+  platform: string;
+  author_handle: string;
+  author_age_days: number | null;
+  content: string;
+  language: string;
+  hate_score: number;
+  category: string;
+  category_label: string;
+  is_flagged: boolean;
+  keyword_matches: string[];
+  model_confidence: number;
+  like_count: number;
+  retweet_count: number;
+  reply_count: number;
+  engagement_total: number;
+  posted_at: string;
+  scraped_at: string;
+  source_url: string;
+  hashtags: string[];
+  reviewed: boolean;
+  review_action: string;
+};
+
+type BackendHateSpeechStats = {
+  total_scraped: number;
+  total_flagged: number;
+  flagged_last_24h: number;
+  flagged_last_1h: number;
+  by_category: Record<string, number>;
+  by_category_labels: Record<string, string>;
+  by_language: Record<string, number>;
+  top_keywords: [string, number][];
+  last_scan_at: string | null;
+  accounts_flagged: string[];
+};
+
+function mapHateSpeechPost(post: BackendHateSpeechPost): HateSpeechPost {
+  return {
+    id: post.id,
+    platform: post.platform,
+    authorHandle: post.author_handle,
+    authorAgeDays: post.author_age_days,
+    content: post.content,
+    language: post.language,
+    hateScore: post.hate_score,
+    category: post.category,
+    categoryLabel: post.category_label,
+    isFlagged: post.is_flagged,
+    keywordMatches: post.keyword_matches,
+    modelConfidence: post.model_confidence,
+    likeCount: post.like_count,
+    retweetCount: post.retweet_count,
+    replyCount: post.reply_count,
+    engagementTotal: post.engagement_total,
+    postedAt: post.posted_at,
+    scrapedAt: post.scraped_at,
+    sourceUrl: post.source_url,
+    hashtags: post.hashtags,
+    reviewed: post.reviewed,
+    reviewAction: post.review_action,
+  };
+}
+
+export async function fetchHateSpeechStats(): Promise<HateSpeechStats> {
+  const data = await requestBackend<BackendHateSpeechStats>("/api/v1/hate-speech/stats");
+  return {
+    totalScraped: data.total_scraped,
+    totalFlagged: data.total_flagged,
+    flaggedLast24h: data.flagged_last_24h,
+    flaggedLast1h: data.flagged_last_1h,
+    byCategory: data.by_category,
+    byCategoryLabels: data.by_category_labels,
+    byLanguage: data.by_language,
+    topKeywords: data.top_keywords,
+    lastScanAt: data.last_scan_at,
+    accountsFlagged: data.accounts_flagged,
+  };
+}
+
+export async function fetchHateSpeechPosts(params: {
+  category?: string;
+  minScore?: number;
+  reviewed?: boolean;
+  limit?: number;
+}): Promise<HateSpeechPost[]> {
+  const query = new URLSearchParams();
+  if (params.category) query.set("category", params.category);
+  if (params.minScore !== undefined) query.set("min_score", String(params.minScore));
+  if (params.reviewed !== undefined) query.set("reviewed", String(params.reviewed));
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  const qs = query.toString();
+  const posts = await requestBackend<BackendHateSpeechPost[]>(`/api/v1/hate-speech/posts${qs ? "?" + qs : ""}`);
+  return posts.map(mapHateSpeechPost);
+}
+
+export async function triggerHateSpeechScan(): Promise<Record<string, unknown>> {
+  return requestBackend<Record<string, unknown>>("/api/v1/hate-speech/scan", { method: "POST" });
+}
+
+export async function reviewHateSpeechPost(
+  postId: string,
+  action: "confirmed" | "dismissed",
+): Promise<{ postId: string; action: string }> {
+  const result = await requestBackend<{ post_id: string; action: string }>(
+    `/api/v1/hate-speech/posts/${postId}/review`,
+    { method: "POST", body: JSON.stringify({ action }) },
+  );
+  return { postId: result.post_id, action: result.action };
+}

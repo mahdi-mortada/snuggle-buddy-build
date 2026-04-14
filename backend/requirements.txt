@@ -40,6 +40,7 @@ celery[redis]>=5.3,<6.0
 # spaCy is installed separately (models downloaded in Dockerfile)
 spacy>=3.7,<4.0
 langdetect>=1.0,<2.0
+twscrape>=0.14,<1.0
 # HuggingFace (models downloaded on first use; cached in volume)
 transformers>=4.40,<5.0
 torch>=2.2; sys_platform != "darwin" or platform_machine != "arm64"
