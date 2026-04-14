@@ -15,7 +15,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.endpoints.auth import _current_user as get_current_user
 from app.models.user import UserRecord
 from app.schemas.common import ApiResponse
 from app.services.social_monitor import CATEGORY_LABELS, social_monitor_service
