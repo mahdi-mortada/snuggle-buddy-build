@@ -2,9 +2,9 @@
 
 > **NEW CHAT? START HERE.**
 > This file is the single source of truth for every decision, fix, and feature built on this project.
-> Read sections 1–4 for orientation, then jump to section 17 for the latest changes.
+> Read sections 1–4 for orientation, then jump to section 18 for the latest changes.
 > GitHub repo: https://github.com/mahdi-mortada/snuggle-buddy-build
-> Active branch with pending PR: `fix-telegram-validation`
+> Active branch: `feature/Scrapping-feature` (ahead of main — includes Hate Speech Monitor + Section 18 fixes)
 
 ---
 
@@ -847,3 +847,82 @@ if not keywords and not post.is_custom:
 - Telethon credentials are live in `backend/.env` (not committed to git — .env is gitignored)
 - `backend/requirements.docker.txt` has Telethon so it is installed in the Docker image
 - The `.env` file must never be committed — it contains real Telegram session string and API key
+
+
+---
+
+## 18. Post-Build Fixes — April 2026 (Session 3)
+
+Everything below was built after Section 17. All changes are on branch **`feature/Scrapping-feature`**.
+
+---
+
+### 18.1 twscrape xclid.py Patch — X JavaScript Format Change
+
+**Problem:** `IndexError: list index out of range` in twscrape caused all X scraping to fail. Root cause: X changed their JS bundling format in 2025 from named scripts (`ondemand.s.*.js`) to numbered chunks with a chunk map using unquoted integer keys and scientific notation (e.g. `88e3`).
+
+**Fix — `backend/patch_twscrape.py`** (new file, applied at Docker image build time via `backend/Dockerfile`):
+
+Two patches to `/usr/local/lib/python3.11/site-packages/twscrape/xclid.py`:
+1. `get_scripts_list()` — tries old format first (`e=>e+"."+{...}[e]+"a.js"`), then new format (`{int_keys}[e]+"a.js"`) with scientific notation handling (`88e3` → `88000`)
+2. `parse_anim_idx()` — falls back to preloaded `main.js` / `vendor.js` when `ondemand.s.*.js` no longer exists
+
+`backend/Dockerfile` line added: `RUN python patch_twscrape.py`
+
+**Note:** Even when XClientTxId generation fails (X changes format again), `fetch_user_timeline()` still works — it sets `gen = None` and makes the API calls without the `x-client-transaction-id` header. Most X endpoints accept this for authenticated sessions.
+
+---
+
+### 18.2 Direct HTTP Timeline Fetcher — Bypasses Account Locking
+
+**Problem:** twscrape's queue client locked the account for 15 minutes after repeated API failures (especially for X search which requires phone verification). Keyword search (`SearchTimeline`) returns 404 for non-phone-verified accounts.
+
+**Fix — `TwscrapeScraper.fetch_user_timeline()` in `backend/app/services/x_scraper.py`:**
+
+Replaces twscrape queue-based calls entirely with direct `httpx.AsyncClient` calls to X's GraphQL API:
+1. Reads cookies directly from SQLite (`accounts` table)
+2. Gets or generates XClientTxId from `XClIdGenStore` cache
+3. `GET /i/api/graphql/{OP_UserByScreenName}` → resolve handle → user_id (cached in `_user_id_cache`)
+4. `GET /i/api/graphql/{OP_UserTweets}` → fetch timeline entries
+5. Parses `timeline_v2` OR `timeline` response structure (X uses either depending on features flags)
+
+**Result:** Account is never locked because the queue client is never used. `@LBCI_NEWS` and `@LOrientLeJour` reliably return 25+ posts per scan.
+
+---
+
+### 18.3 Hate Speech Monitor — Show All Posts by Default
+
+**Problem:** `/hate-speech/posts` endpoint only returns flagged posts (hate_score ≥ 51). Since Lebanese news media don't post hate speech, 0 posts showed in the UI even after a successful 58-post scan.
+
+**Fixes:**
+- `backend/app/services/social_monitor.py` — `get_stats()` now counts ALL posts (not just flagged) for `by_category` and `by_language` breakdowns
+- `src/services/backendApi.ts` — added `fetchHateSpeechAllPosts()` calling `GET /hate-speech/all`
+- `src/pages/HateSpeechMonitor.tsx` — defaults to "All Posts" mode (`/hate-speech/all`), added "All Posts / Flagged Only" toggle button; category filter applied client-side when in All Posts mode
+
+---
+
+### 18.4 Current Git State
+
+| Branch | Status |
+|--------|--------|
+| `main` | Last merged: Section 16 fixes |
+| `fix-telegram-validation` | Merged into main (PR #7) |
+| `feature/Scrapping-feature` | **Active — 4+ commits ahead of main** |
+
+**Latest commit:** `fix: patch twscrape for X JS format change + show all scraped posts in UI`
+
+---
+
+### 18.5 Known State After Session 3
+
+- 58 real posts from `@LBCI_NEWS`, `@LOrientLeJour`, `@DailyStarLeb` showing live in Hate Speech Monitor
+- Arabic (36%), French (33%), English (31%) coverage confirmed
+- Account locks reset by clearing `locks` column in `/app/twscrape_accounts.db` — can be done via:
+  ```bash
+  docker exec snuggle-buddy-build-main-backend-1 python3 -c "
+  import sqlite3; conn = sqlite3.connect('/app/twscrape_accounts.db')
+  conn.execute(\"UPDATE accounts SET locks='{}', active=1\"); conn.commit(); conn.close()
+  "
+  ```
+- X search (`SearchTimeline`) still returns 404 — @SamirCharb account is not phone-verified; timeline scraping is the reliable path
+- `XClIdGen.create()` currently fails ("no known format found") but `fetch_user_timeline()` works without it
