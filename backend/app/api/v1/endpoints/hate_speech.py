@@ -1,11 +1,13 @@
 """Hate Speech Monitor API Endpoints.
 
-GET  /api/v1/hate-speech/stats          → aggregated statistics
-GET  /api/v1/hate-speech/posts          → flagged post feed (paginated)
-GET  /api/v1/hate-speech/all            → all posts (flagged + clean)
-POST /api/v1/hate-speech/scan           → trigger manual scan
-POST /api/v1/hate-speech/posts/{id}/review → mark post reviewed
-POST /api/v1/hate-speech/analyze        → analyze a single text (debug/test)
+GET  /api/v1/hate-speech/stats              → aggregated statistics + trend clusters
+GET  /api/v1/hate-speech/trends             → active trend clusters with risk scores
+GET  /api/v1/hate-speech/posts              → flagged post feed (paginated, sortable)
+GET  /api/v1/hate-speech/all                → all posts (sortable: priority|score|engagement|velocity|recent)
+POST /api/v1/hate-speech/scan               → trigger manual scan
+POST /api/v1/hate-speech/posts/{id}/review  → mark post reviewed
+GET  /api/v1/hate-speech/posts/{id}/replies → most-liked replies
+POST /api/v1/hate-speech/analyze            → analyze a single text (debug/test)
 """
 from __future__ import annotations
 
@@ -18,13 +20,13 @@ from pydantic import BaseModel
 from app.api.v1.endpoints.auth import _current_user as get_current_user
 from app.models.user import UserRecord
 from app.schemas.common import ApiResponse
-from app.services.social_monitor import CATEGORY_LABELS, social_monitor_service
+from app.services.social_monitor import CATEGORY_LABELS, TrendCluster, social_monitor_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ── Response schemas ──────────────────────────────────────────────────────────
+# ── Response schemas ───────────────────────────────────────────────────────────
 
 class SocialPostOut(BaseModel):
     id: str
@@ -49,6 +51,27 @@ class SocialPostOut(BaseModel):
     hashtags: list[str]
     reviewed: bool
     review_action: str
+    # Trend-first fields
+    matched_trend: str
+    engagement_velocity: float
+    priority_score: float
+
+
+class TrendClusterOut(BaseModel):
+    trend: str
+    display_name: str
+    tweet_volume: int | None
+    trend_rank: int
+    post_count: int
+    flagged_count: int
+    avg_risk_score: float
+    max_risk_score: float
+    total_engagement: int
+    top_post_ids: list[str]
+    source: str
+    # Derived
+    flag_rate: float         # flagged_count / post_count
+    risk_level: str          # "critical" | "high" | "medium" | "low"
 
 
 class HateSpeechStatsOut(BaseModel):
@@ -65,6 +88,7 @@ class HateSpeechStatsOut(BaseModel):
     trending_hashtags: list[str] = []
     top_posts_by_engagement: list[str] = []
     hashtag_top_posts: dict[str, list[str]] = {}
+    active_trends: list[TrendClusterOut] = []
 
 
 class ReplyOut(BaseModel):
@@ -99,7 +123,36 @@ class ReviewRequest(BaseModel):
     action: Literal["confirmed", "dismissed"]
 
 
-# ── Helper ────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _risk_level(max_score: float) -> str:
+    if max_score >= 80:
+        return "critical"
+    if max_score >= 60:
+        return "high"
+    if max_score >= 40:
+        return "medium"
+    return "low"
+
+
+def _cluster_to_out(c: TrendCluster) -> TrendClusterOut:
+    flag_rate = round(c.flagged_count / max(1, c.post_count), 3)
+    return TrendClusterOut(
+        trend=c.trend,
+        display_name=c.display_name,
+        tweet_volume=c.tweet_volume,
+        trend_rank=c.trend_rank,
+        post_count=c.post_count,
+        flagged_count=c.flagged_count,
+        avg_risk_score=c.avg_risk_score,
+        max_risk_score=c.max_risk_score,
+        total_engagement=c.total_engagement,
+        top_post_ids=c.top_post_ids,
+        source=c.source,
+        flag_rate=flag_rate,
+        risk_level=_risk_level(c.max_risk_score),
+    )
+
 
 def _post_to_out(post) -> SocialPostOut:  # type: ignore[no-untyped-def]
     return SocialPostOut(
@@ -125,6 +178,9 @@ def _post_to_out(post) -> SocialPostOut:  # type: ignore[no-untyped-def]
         hashtags=post.hashtags,
         reviewed=post.reviewed,
         review_action=post.review_action,
+        matched_trend=post.matched_trend,
+        engagement_velocity=round(post.engagement_velocity, 2),
+        priority_score=round(post.priority_score, 1),
     )
 
 
@@ -134,7 +190,7 @@ def _post_to_out(post) -> SocialPostOut:  # type: ignore[no-untyped-def]
 async def get_hate_speech_stats(
     _user: UserRecord = Depends(get_current_user),
 ) -> ApiResponse[HateSpeechStatsOut]:
-    """Return aggregated hate speech monitoring statistics."""
+    """Return aggregated statistics + active trend cluster summaries."""
     stats = social_monitor_service.get_stats()
     return ApiResponse(data=HateSpeechStatsOut(
         total_scraped=stats.total_scraped,
@@ -150,7 +206,25 @@ async def get_hate_speech_stats(
         trending_hashtags=stats.trending_hashtags,
         top_posts_by_engagement=stats.top_posts_by_engagement,
         hashtag_top_posts=stats.hashtag_top_posts,
+        active_trends=[_cluster_to_out(c) for c in stats.active_trends],
     ))
+
+
+@router.get("/trends", response_model=ApiResponse[list[TrendClusterOut]])
+async def get_trend_clusters(
+    _user: UserRecord = Depends(get_current_user),
+) -> ApiResponse[list[TrendClusterOut]]:
+    """Return active Lebanon trend clusters sorted by risk (highest risk first).
+
+    Each cluster includes:
+      - trend name and rank in Lebanon trends
+      - post count, flagged count, flag rate
+      - avg/max risk score
+      - risk_level label (critical/high/medium/low)
+      - total engagement and top post IDs
+    """
+    stats = social_monitor_service.get_stats()
+    return ApiResponse(data=[_cluster_to_out(c) for c in stats.active_trends])
 
 
 @router.get("/posts", response_model=ApiResponse[list[SocialPostOut]])
@@ -159,14 +233,19 @@ async def list_flagged_posts(
     min_score: float = Query(51.0, ge=0, le=100),
     reviewed: bool | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    sort: str = Query("priority", pattern="^(priority|score|engagement|velocity|recent)$"),
     _user: UserRecord = Depends(get_current_user),
 ) -> ApiResponse[list[SocialPostOut]]:
-    """Return paginated list of flagged posts."""
+    """Return paginated list of flagged posts.
+
+    sort options: priority (default), score, engagement, velocity, recent
+    """
     posts = social_monitor_service.list_flagged(
         limit=limit,
         category=category,
         min_score=min_score,
         reviewed=reviewed,
+        sort=sort,
     )
     return ApiResponse(data=[_post_to_out(p) for p in posts])
 
@@ -175,21 +254,32 @@ async def list_flagged_posts(
 async def list_all_posts(
     hours: int = Query(24, ge=1, le=72),
     limit: int = Query(100, ge=1, le=500),
+    sort: str = Query("priority", pattern="^(priority|score|engagement|velocity|recent)$"),
     _user: UserRecord = Depends(get_current_user),
 ) -> ApiResponse[list[SocialPostOut]]:
-    """Return all scraped posts (flagged and clean) for the given time window."""
-    posts = social_monitor_service.list_all(limit=limit, hours=hours)
+    """Return all scraped posts (flagged and clean) sorted by priority by default."""
+    posts = social_monitor_service.list_all(limit=limit, hours=hours, sort=sort)
+    return ApiResponse(data=[_post_to_out(p) for p in posts])
+
+
+@router.get("/trend/{trend_name}", response_model=ApiResponse[list[SocialPostOut]])
+async def list_posts_by_trend(
+    trend_name: str,
+    limit: int = Query(20, ge=1, le=100),
+    _user: UserRecord = Depends(get_current_user),
+) -> ApiResponse[list[SocialPostOut]]:
+    """Return posts for a specific trend, sorted by priority score."""
+    posts = social_monitor_service.list_by_trend(trend_name, limit=limit)
     return ApiResponse(data=[_post_to_out(p) for p in posts])
 
 
 @router.post("/scan", response_model=ApiResponse[dict])
 async def trigger_scan(
-    include_replies: bool = True,
     _user: UserRecord = Depends(get_current_user),
 ) -> ApiResponse[dict]:
-    """Manually trigger a scrape + detection cycle."""
+    """Manually trigger a trend discovery → scrape → detection cycle."""
     try:
-        summary = await social_monitor_service.run_scan(include_replies=include_replies)
+        summary = await social_monitor_service.run_scan()
         return ApiResponse(data=summary or {"status": "ok"})
     except Exception as exc:
         logger.exception("Manual scan failed")
@@ -215,8 +305,7 @@ async def get_post_replies(
     limit: int = Query(10, ge=1, le=30),
     _user: UserRecord = Depends(get_current_user),
 ) -> ApiResponse[list[ReplyOut]]:
-    """Fetch most-liked replies for a post via X TweetDetail API."""
-    # post_id format: "x:1234567890"
+    """Fetch most-liked replies for a post via X TweetDetail GraphQL."""
     tweet_id = post_id.removeprefix("x:")
     try:
         from app.services.x_scraper import x_scraper_service
@@ -251,7 +340,7 @@ async def analyze_text(
     """Analyze a single piece of text for hate speech (for testing/debug)."""
     if not body.text.strip():
         raise HTTPException(status_code=422, detail="Text cannot be empty")
-    result = await hate_speech_detector.analyze(body.text)  # type: ignore[name-defined]
+    result = await hate_speech_detector.analyze(body.text)
     return ApiResponse(data=AnalyzeResponse(
         text=result.text,
         language=result.language,
@@ -264,5 +353,4 @@ async def analyze_text(
     ))
 
 
-# Fix: import detector for the analyze endpoint
 from app.services.hate_speech_detector import hate_speech_detector  # noqa: E402

@@ -681,6 +681,26 @@ export type HateSpeechPost = {
   hashtags: string[];
   reviewed: boolean;
   reviewAction: string;
+  // Trend-first fields
+  matchedTrend: string;        // which Lebanon trend this tweet was found under
+  engagementVelocity: number;  // engagement per hour (virality signal, 0–100)
+  priorityScore: number;       // combined risk + velocity + trend rank (0–100)
+};
+
+export type HateSpeechTrendCluster = {
+  trend: string;
+  displayName: string;
+  tweetVolume: number | null;
+  trendRank: number;
+  postCount: number;
+  flaggedCount: number;
+  avgRiskScore: number;
+  maxRiskScore: number;
+  totalEngagement: number;
+  topPostIds: string[];
+  source: string;
+  flagRate: number;
+  riskLevel: 'critical' | 'high' | 'medium' | 'low';
 };
 
 export type HateSpeechStats = {
@@ -697,6 +717,7 @@ export type HateSpeechStats = {
   trendingHashtags: string[];
   topPostsByEngagement: string[];
   hashtagTopPosts: Record<string, string[]>;
+  activeTrends: HateSpeechTrendCluster[];
 };
 
 export type HateSpeechReply = {
@@ -711,6 +732,8 @@ export type HateSpeechReply = {
   postedAt: string;
   sourceUrl: string;
 };
+
+export type HateSpeechSortOption = 'priority' | 'score' | 'engagement' | 'velocity' | 'recent';
 
 type BackendHateSpeechPost = {
   id: string;
@@ -735,6 +758,25 @@ type BackendHateSpeechPost = {
   hashtags: string[];
   reviewed: boolean;
   review_action: string;
+  matched_trend: string;
+  engagement_velocity: number;
+  priority_score: number;
+};
+
+type BackendTrendCluster = {
+  trend: string;
+  display_name: string;
+  tweet_volume: number | null;
+  trend_rank: number;
+  post_count: number;
+  flagged_count: number;
+  avg_risk_score: number;
+  max_risk_score: number;
+  total_engagement: number;
+  top_post_ids: string[];
+  source: string;
+  flag_rate: number;
+  risk_level: string;
 };
 
 type BackendHateSpeechStats = {
@@ -751,7 +793,26 @@ type BackendHateSpeechStats = {
   trending_hashtags?: string[];
   top_posts_by_engagement?: string[];
   hashtag_top_posts?: Record<string, string[]>;
+  active_trends?: BackendTrendCluster[];
 };
+
+function mapTrendCluster(c: BackendTrendCluster): HateSpeechTrendCluster {
+  return {
+    trend: c.trend,
+    displayName: c.display_name,
+    tweetVolume: c.tweet_volume,
+    trendRank: c.trend_rank,
+    postCount: c.post_count,
+    flaggedCount: c.flagged_count,
+    avgRiskScore: c.avg_risk_score,
+    maxRiskScore: c.max_risk_score,
+    totalEngagement: c.total_engagement,
+    topPostIds: c.top_post_ids,
+    source: c.source,
+    flagRate: c.flag_rate,
+    riskLevel: (c.risk_level as HateSpeechTrendCluster['riskLevel']) ?? 'low',
+  };
+}
 
 function mapHateSpeechPost(post: BackendHateSpeechPost): HateSpeechPost {
   return {
@@ -777,6 +838,9 @@ function mapHateSpeechPost(post: BackendHateSpeechPost): HateSpeechPost {
     hashtags: post.hashtags,
     reviewed: post.reviewed,
     reviewAction: post.review_action,
+    matchedTrend: post.matched_trend ?? '',
+    engagementVelocity: post.engagement_velocity ?? 0,
+    priorityScore: post.priority_score ?? 0,
   };
 }
 
@@ -796,7 +860,13 @@ export async function fetchHateSpeechStats(): Promise<HateSpeechStats> {
     trendingHashtags: data.trending_hashtags ?? [],
     topPostsByEngagement: data.top_posts_by_engagement ?? [],
     hashtagTopPosts: data.hashtag_top_posts ?? {},
+    activeTrends: (data.active_trends ?? []).map(mapTrendCluster),
   };
+}
+
+export async function fetchHateSpeechTrends(): Promise<HateSpeechTrendCluster[]> {
+  const clusters = await requestBackend<BackendTrendCluster[]>("/api/v1/hate-speech/trends");
+  return clusters.map(mapTrendCluster);
 }
 
 export async function fetchHateSpeechPosts(params: {
@@ -804,12 +874,14 @@ export async function fetchHateSpeechPosts(params: {
   minScore?: number;
   reviewed?: boolean;
   limit?: number;
+  sort?: HateSpeechSortOption;
 }): Promise<HateSpeechPost[]> {
   const query = new URLSearchParams();
   if (params.category) query.set("category", params.category);
   if (params.minScore !== undefined) query.set("min_score", String(params.minScore));
   if (params.reviewed !== undefined) query.set("reviewed", String(params.reviewed));
   if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.sort) query.set("sort", params.sort);
   const qs = query.toString();
   const posts = await requestBackend<BackendHateSpeechPost[]>(`/api/v1/hate-speech/posts${qs ? "?" + qs : ""}`);
   return posts.map(mapHateSpeechPost);
@@ -818,12 +890,24 @@ export async function fetchHateSpeechPosts(params: {
 export async function fetchHateSpeechAllPosts(params: {
   hours?: number;
   limit?: number;
+  sort?: HateSpeechSortOption;
 }): Promise<HateSpeechPost[]> {
   const query = new URLSearchParams();
   if (params.hours !== undefined) query.set("hours", String(params.hours));
   if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.sort) query.set("sort", params.sort);
   const qs = query.toString();
   const posts = await requestBackend<BackendHateSpeechPost[]>(`/api/v1/hate-speech/all${qs ? "?" + qs : ""}`);
+  return posts.map(mapHateSpeechPost);
+}
+
+export async function fetchHateSpeechPostsByTrend(
+  trendName: string,
+  limit = 20,
+): Promise<HateSpeechPost[]> {
+  const posts = await requestBackend<BackendHateSpeechPost[]>(
+    `/api/v1/hate-speech/trend/${encodeURIComponent(trendName)}?limit=${limit}`,
+  );
   return posts.map(mapHateSpeechPost);
 }
 
