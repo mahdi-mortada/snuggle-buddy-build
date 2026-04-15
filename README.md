@@ -589,7 +589,7 @@ npm run dev
 Or use the PowerShell convenience script from the project root:
 
 ```powershell
-.\run-local.ps1
+.\scripts\run-local.ps1
 ```
 
 ### Step 5 — Open the app
@@ -1289,22 +1289,23 @@ The frontend is already running. Open http://127.0.0.1:8080/ directly, or stop t
 ```bash
 netstat -ano | findstr :8080
 taskkill /PID <PID> /F
-.\run-local.ps1
+.\scripts\run-local.ps1
 ```
 
-### `.\run-local.ps1` is not recognized
+### `.\scripts\run-local.ps1` is not recognized
 
 You are in the outer `snuggle-buddy-build-main` folder instead of the inner project root.
 
 ```powershell
 cd C:\Users\MahdiMortada\Downloads\snuggle-buddy-build-main\snuggle-buddy-build-main
-.\run-local.ps1
+.\scripts\run-local.ps1
 ```
 
 Verify you are in the correct folder:
 ```powershell
 dir package.json
-dir run-local.ps1
+dir scripts
+un-local.ps1
 ```
 
 ### Browser shows stale version or wrong port

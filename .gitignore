@@ -45,3 +45,11 @@ ml-pipeline/models/*.pkl
 twscrape_accounts.db
 accounts.db
 backend/twscrape_accounts.db
+
+# Runtime DB files (mounted via docker-compose volumes)
+twscrape_accounts.db
+accounts.db
+backend/accounts.db
+
+# Celery generated file
+backend/celerybeat-schedule
