@@ -63,11 +63,11 @@ celery_app.conf.beat_schedule = {
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _run_async(coro) -> None:
-    """Run an async coroutine from a sync Celery task."""
+def _run_async(coro):
+    """Run an async coroutine from a sync Celery task and return its result."""
     loop = asyncio.new_event_loop()
     try:
-        loop.run_until_complete(coro)
+        return loop.run_until_complete(coro)
     finally:
         loop.close()
 
