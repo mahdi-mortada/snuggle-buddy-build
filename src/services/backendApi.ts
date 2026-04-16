@@ -956,3 +956,63 @@ export async function fetchHateSpeechReplies(postId: string, limit = 10): Promis
     sourceUrl: r.source_url,
   }));
 }
+
+export async function fetchHateSpeechSearch(query: string, limit = 10): Promise<HateSpeechPost[]> {
+  const q = query.startsWith('#') ? query.slice(1) : query;
+  const posts = await requestBackend<BackendHateSpeechPost[]>(
+    `/api/v1/hate-speech/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
+  return posts.map(mapHateSpeechPost);
+}
+
+export type HateSpeechAgentStatus = {
+  mode: string;
+  isRunning: boolean;
+  scanCount: number;
+  totalPostsDiscovered: number;
+  lastScanAt: string | null;
+  lastScanDurationSeconds: number;
+  lastScanPostsFound: number;
+  nextScanAt: string | null;
+  sourcesLastScan: string[];
+  queriesUsed: number;
+  discoveryStrategies: string[];
+  scanIntervalSeconds: number;
+  currentPostsInStore: number;
+  description: string;
+};
+
+export async function fetchHateSpeechAgentStatus(): Promise<HateSpeechAgentStatus> {
+  const data = await requestBackend<{
+    mode: string;
+    is_running: boolean;
+    scan_count: number;
+    total_posts_discovered: number;
+    last_scan_at: string | null;
+    last_scan_duration_seconds: number;
+    last_scan_posts_found: number;
+    next_scan_at: string | null;
+    sources_last_scan: string[];
+    queries_used: number;
+    discovery_strategies: string[];
+    scan_interval_seconds: number;
+    current_posts_in_store: number;
+    description: string;
+  }>("/api/v1/hate-speech/agent-status");
+  return {
+    mode: data.mode,
+    isRunning: data.is_running,
+    scanCount: data.scan_count,
+    totalPostsDiscovered: data.total_posts_discovered,
+    lastScanAt: data.last_scan_at,
+    lastScanDurationSeconds: data.last_scan_duration_seconds,
+    lastScanPostsFound: data.last_scan_posts_found,
+    nextScanAt: data.next_scan_at,
+    sourcesLastScan: data.sources_last_scan,
+    queriesUsed: data.queries_used,
+    discoveryStrategies: data.discovery_strategies,
+    scanIntervalSeconds: data.scan_interval_seconds,
+    currentPostsInStore: data.current_posts_in_store,
+    description: data.description,
+  };
+}

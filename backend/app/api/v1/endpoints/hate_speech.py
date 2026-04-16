@@ -123,6 +123,23 @@ class ReviewRequest(BaseModel):
     action: Literal["confirmed", "dismissed"]
 
 
+class AgentStatusOut(BaseModel):
+    mode: str
+    is_running: bool
+    scan_count: int
+    total_posts_discovered: int
+    last_scan_at: str | None
+    last_scan_duration_seconds: float
+    last_scan_posts_found: int
+    next_scan_at: str | None
+    sources_last_scan: list[str]
+    queries_used: int
+    discovery_strategies: list[str]
+    scan_interval_seconds: int
+    current_posts_in_store: int
+    description: str
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _risk_level(max_score: float) -> str:
@@ -330,6 +347,123 @@ async def get_post_replies(
         for r in raw_replies
     ]
     return ApiResponse(data=replies)
+
+
+@router.get("/search", response_model=ApiResponse[list[SocialPostOut]])
+async def search_hashtag_live(
+    q: str = Query(..., min_length=1, description="Arabic hashtag or keyword (with or without #)"),
+    limit: int = Query(10, ge=1, le=20),
+    _user: UserRecord = Depends(get_current_user),
+) -> ApiResponse[list[SocialPostOut]]:
+    """Search for real public X posts about a hashtag via SearchTimeline GraphQL.
+
+    Priority order:
+      1. Authenticated SearchTimeline (most-interacted Arabic posts from all of X)
+      2. Guest token search (fallback, limited for Arabic)
+      3. Agent's collected store (last resort)
+
+    Results are sorted by total engagement (likes + retweets + replies + quotes).
+    Hate speech analysis is run on each result in real time.
+    """
+    from datetime import UTC, datetime as _datetime
+    from app.services.x_scraper import x_scraper_service, TrendTopic as _TrendTopic
+    from app.services.social_monitor import SocialPost, _compute_priority
+
+    # Normalise: strip leading # so we can build both forms
+    query_clean = q.strip().lstrip("#")
+
+    try:
+        raw_posts: list = []
+
+        # ── Stage 1: Authenticated SearchTimeline (works for Arabic without phone-verify) ──
+        synthetic_trend = _TrendTopic(
+            name=query_clean,
+            display_name=f"#{query_clean}",
+            tweet_volume=None,
+            trend_rank=1,
+            source="user_search",
+        )
+        raw_posts = await x_scraper_service._twscrape.search_hashtag_top(
+            synthetic_trend, limit=min(limit * 3, 40)
+        )
+        if raw_posts:
+            logger.info("Hashtag search #%s — SearchTimeline → %d posts", query_clean, len(raw_posts))
+
+        # ── Stage 2: Guest token fallback (for English/short queries) ──
+        if not raw_posts:
+            raw_posts = await x_scraper_service._guest.search(f"#{query_clean}", limit=min(limit * 3, 60))
+            if raw_posts:
+                logger.info("Hashtag search #%s — guest API → %d posts", query_clean, len(raw_posts))
+
+        # Sort by total engagement and trim to requested limit
+        raw_posts.sort(key=lambda p: p.engagement_total, reverse=True)
+        raw_posts = raw_posts[:limit]
+
+        if not raw_posts:
+            # ── Stage 3: Stored agent posts (real data already collected) ──
+            stored = social_monitor_service.search_posts(query_clean, limit=limit)
+            logger.info(
+                "Hashtag search #%s — live API returned 0, found %d in agent store",
+                query_clean, len(stored),
+            )
+            return ApiResponse(data=[_post_to_out(p) for p in stored])
+
+        # Run hate speech detection + build SocialPost objects for live results
+        results: list[SocialPostOut] = []
+        for raw in raw_posts:
+            try:
+                det = await hate_speech_detector.analyze(raw.content)
+                raw.compute_engagement_velocity()
+                hate_score = det.hate_score
+                priority = _compute_priority(
+                    hate_score, raw.engagement_velocity, 99, raw.account_age_days
+                )
+                post = SocialPost(
+                    id=f"x:{raw.post_id}",
+                    platform="x",
+                    author_handle=raw.author_handle,
+                    author_id=raw.author_id,
+                    author_age_days=raw.account_age_days,
+                    content=raw.content,
+                    language=det.language,
+                    hate_score=hate_score,
+                    category=det.category,
+                    is_flagged=hate_score >= 51.0,
+                    keyword_matches=det.keyword_matches,
+                    model_confidence=det.model_confidence,
+                    like_count=raw.like_count,
+                    retweet_count=raw.retweet_count,
+                    reply_count=raw.reply_count,
+                    quote_count=raw.quote_count,
+                    engagement_total=raw.engagement_total,
+                    posted_at=raw.posted_at,
+                    scraped_at=_datetime.now(UTC),
+                    source_url=raw.source_url,
+                    hashtags=raw.hashtags,
+                    matched_trend=query_clean,
+                    engagement_velocity=raw.engagement_velocity,
+                    priority_score=priority,
+                )
+                results.append(_post_to_out(post))
+            except Exception as exc:
+                logger.debug("Search result skipped for %s: %s", raw.post_id, exc)
+                continue
+
+        logger.info("Hashtag search #%s (live) → %d results", query_clean, len(results))
+        return ApiResponse(data=results)
+
+    except Exception as exc:
+        logger.exception("Hashtag search failed for query=%s", q)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/agent-status", response_model=ApiResponse[AgentStatusOut])
+async def get_agent_status(
+    _user: UserRecord = Depends(get_current_user),
+) -> ApiResponse[AgentStatusOut]:
+    """Return public discovery agent status — mode, last scan, next scan, strategies used."""
+    data = social_monitor_service.get_agent_status()
+    return ApiResponse(data=AgentStatusOut(**data))
 
 
 @router.post("/analyze", response_model=ApiResponse[AnalyzeResponse])

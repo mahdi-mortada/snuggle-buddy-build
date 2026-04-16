@@ -29,7 +29,7 @@ function platformLabel(platform: OfficialFeedPost['platform']): string {
 }
 
 export default function OfficialFeeds() {
-  const { incidents, alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
+  const { incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert } = useLiveData(30000);
   const [posts, setPosts] = useState<OfficialFeedPost[]>([]);
   const [sources, setSources] = useState<OfficialFeedSource[]>([]);
   const [locationIndex, setLocationIndex] = useState<LebanonLocationIndex | null>(null);
@@ -169,7 +169,7 @@ export default function OfficialFeeds() {
   };
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert }}>
       <div className="space-y-6">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div className="space-y-2">

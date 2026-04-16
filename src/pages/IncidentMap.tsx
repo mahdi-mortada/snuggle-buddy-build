@@ -417,7 +417,7 @@ export default function IncidentMap() {
   const [mapFeedError, setMapFeedError] = useState<string | null>(null);
   const isFetchingMapFeedRef = useRef(false);
 
-  const { alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
+  const { alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert } = useLiveData(30000);
 
   const loadMapFeed = useCallback(async (showLoading = false) => {
     if (isFetchingMapFeedRef.current) return;
@@ -749,7 +749,7 @@ export default function IncidentMap() {
   }, [geoJsonData, markerEvents]);
 
   return (
-    <DashboardLayout liveData={{ incidents: liveIncidents, alerts, stats, lastUpdated, connectionStatus }}>
+    <DashboardLayout liveData={{ incidents: liveIncidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert }}>
       <div className="flex flex-col h-[calc(100vh-8rem)] gap-4">
         {/* Controls */}
         <div className="glass-panel p-3 flex items-center gap-4 flex-wrap">

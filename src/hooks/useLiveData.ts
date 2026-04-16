@@ -403,7 +403,9 @@ export function useLiveData(refreshInterval = 30000) {
   }, [fetchBackendData, fetchSupabaseNews]);
 
   const acknowledgeAlert = useCallback(async (alertId: string) => {
-    if (runtimeConfig.hasBackendApi) {
+    // Synthetic alerts (built client-side from incidents) have no backend record — update state only
+    const isSynthetic = alertId.startsWith('live-alert-');
+    if (runtimeConfig.hasBackendApi && !isSynthetic) {
       const updated = await acknowledgeBackendAlert(alertId);
       setAlerts((current) => current.map((alert) => (alert.id === alertId ? updated : alert)));
       setStats((current) => ({
@@ -416,6 +418,10 @@ export function useLiveData(refreshInterval = 30000) {
     setAlerts((current) => current.map((alert) => (
       alert.id === alertId ? { ...alert, isAcknowledged: true } : alert
     )));
+    setStats((current) => ({
+      ...current,
+      activeAlerts: Math.max(0, current.activeAlerts - 1),
+    }));
     return null;
   }, []);
 
@@ -424,13 +430,13 @@ export function useLiveData(refreshInterval = 30000) {
     if (pendingIds.length === 0) return;
 
     if (runtimeConfig.hasBackendApi) {
-      await Promise.all(pendingIds.map((alertId) => acknowledgeBackendAlert(alertId)));
-      setAlerts((current) => current.map((alert) => ({ ...alert, isAcknowledged: true })));
-      setStats((current) => ({ ...current, activeAlerts: 0 }));
-      return;
+      // Only send backend requests for real (non-synthetic) alert IDs
+      const realIds = pendingIds.filter((id) => !id.startsWith('live-alert-'));
+      await Promise.all(realIds.map((alertId) => acknowledgeBackendAlert(alertId)));
     }
 
     setAlerts((current) => current.map((alert) => ({ ...alert, isAcknowledged: true })));
+    setStats((current) => ({ ...current, activeAlerts: 0 }));
   }, [alerts]);
 
   const handleBackendMessage = useCallback((message: BackendWebSocketMessage) => {

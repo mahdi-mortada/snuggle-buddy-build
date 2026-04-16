@@ -21,7 +21,7 @@ function toTimestamp(value: string): number {
 }
 
 export default function Dashboard() {
-  const { incidents: dashboardIncidents, stats, alerts, riskScores, trendData, lastUpdated, updateCount, refresh, connectionStatus } = useLiveData(30000);
+  const { incidents: dashboardIncidents, stats, alerts, riskScores, trendData, lastUpdated, updateCount, refresh, connectionStatus, acknowledgeAlert } = useLiveData(30000);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [officialFeeds, setOfficialFeeds] = useState<OfficialFeedPost[]>([]);
   const [mergedFeedLoading, setMergedFeedLoading] = useState(true);
@@ -106,7 +106,7 @@ export default function Dashboard() {
   }, [loadMergedFeedSources]);
 
   return (
-    <DashboardLayout liveData={{ incidents: dashboardIncidents, alerts, stats, lastUpdated, connectionStatus }}>
+    <DashboardLayout liveData={{ incidents: dashboardIncidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert }}>
       <div className="space-y-6">
         {/* Top bar with actions */}
         <div className="flex items-center justify-between flex-wrap gap-2">

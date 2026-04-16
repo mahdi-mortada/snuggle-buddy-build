@@ -9,6 +9,10 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     strictPort: true,
+    watch: {
+      usePolling: true,
+      interval: 300,
+    },
     hmr: {
       overlay: false,
     },

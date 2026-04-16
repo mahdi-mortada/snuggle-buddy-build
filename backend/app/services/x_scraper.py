@@ -78,19 +78,29 @@ ALL_CURATED_HASHTAGS = (
 )
 
 # ── Lebanese influencer accounts (fallback only when search is blocked) ────────
+# Verified working as of April 2026. Add/remove handles here as accounts change.
+# Prefer high-frequency posters (news channels > politicians > activists).
 LEBANESE_INFLUENCER_ACCOUNTS = [
-    "LBCI_News",
-    "NaharnetAr",
-    "AlJumhuriya",
-    "Gebran_Bassil",
-    "NassibLahoud",
-    "walid_joumblatt",
-    "saadhariri",
-    "nbassil",
-    "Annahar",
-    "MTV_Lebanon",
-    "OTV_Lebanon",
-    "LBC_Group",
+    # ── TV / broadcast ──
+    "LBCI_News",        # LBCI TV — multiple posts per hour
+    "LBC_Group",        # LBC TV news feed
+    "AlMayadeen_Eng",   # Al Mayadeen (English)
+    "AlJadeedNews",     # Al Jadeed TV
+    # ── Print / digital newspapers ──
+    "Annahar",          # An-Nahar — major Arabic daily
+    "AlJumhuriya",      # Al Jumhuriya newspaper
+    "LOrientLeJour",    # L'Orient Le Jour (French/English)
+    "DailyStarLeb",     # The Daily Star Lebanon
+    "NaharNet",         # Naharnet English wire
+    "The961",           # The961 — popular English news site
+    # ── Wire services active on Lebanon ──
+    "Reuters_Lebanon",  # Reuters Lebanon bureau
+    "AFParabic",        # AFP Arabic breaking news
+    # ── Politicians / key voices ──
+    "Gebran_Bassil",    # FPM leader
+    "saadhariri",       # Former PM Hariri
+    # ── Civil society / monitoring ──
+    "LebanonUprising",  # Civil uprising accounts
 ]
 
 # ── Seed search queries (keyword fallback) ────────────────────────────────────
@@ -98,8 +108,43 @@ SEED_QUERIES = [
     "لبنان طائفية -filter:links",
     "حزب الله مسيحيين OR سنة OR درزية",
     "اللاجئين السوريين لبنان ارحلوا OR اخرجوا",
-    "lebanon sectarian hate",
-    "liban réfugiés sectaire",
+    "خطاب الكراهية لبنان",
+    "النازحون السوريون لبنان مشكلة",
+]
+
+# ── Public hate speech queries — Arabic only, broad discovery, no account required
+# Used by scrape_public_keywords() via XGuestScraper (guest token, no auth).
+# Searches ALL public X posts — not restricted to specific accounts.
+# Arabic-only: covers sectarian hate, anti-refugee, political incitement in Lebanon.
+PUBLIC_HATE_SPEECH_QUERIES: list[str] = [
+    # Sectarian hate
+    "لبنان طائفية",
+    "طائفة لبنان كراهية",
+    "حزب الله مسيحيين",
+    "لبنان شيعة سنة درزية",
+    "تمييز طائفي لبنان",
+    "طائفية لبنان 2025",
+    # Anti-refugee
+    "اللاجئين السوريين لبنان ارحلوا",
+    "السوريين لبنان اخرجوا",
+    "النازحون لبنان جريمة",
+    "سوريين لبنان مشكلة",
+    "اللاجئون السوريون يغادرون لبنان",
+    # Political incitement
+    "حزب الله ارهاب",
+    "المقاومة لبنان جرائم",
+    "لبنان تفجير ارهاب حزب",
+    "الميليشيات لبنان",
+    # General hate speech
+    "خطاب الكراهية لبنان",
+    "لبنان تمييز",
+    "كراهية لبنان طائفة",
+    # Hashtag-targeted (Arabic)
+    "#طائفية_لبنان",
+    "#اللاجئون_في_لبنان",
+    "#لبنان طائفية",
+    "#حزب_الله",
+    "#اللاجئون_السوريون",
 ]
 
 # ── X Bearer token (public, embedded in the official X web app) ───────────────
@@ -346,7 +391,7 @@ class TwscrapeScraper:
             from twscrape import API  # type: ignore[import]
             db_candidates = [
                 "/app/twscrape_accounts.db",
-                os.path.join(os.path.dirname(__file__), "../../../../twscrape_accounts.db"),
+                os.path.join(os.path.dirname(__file__), "../../../twscrape_accounts.db"),
                 os.path.expanduser("~/.local/share/twscrape/accounts.db"),
             ]
             db_path = next((p for p in db_candidates if os.path.exists(p)), None)
@@ -363,7 +408,7 @@ class TwscrapeScraper:
     def _get_db_path(self) -> str | None:
         candidates = [
             "/app/twscrape_accounts.db",
-            os.path.join(os.path.dirname(__file__), "../../../../twscrape_accounts.db"),
+            os.path.join(os.path.dirname(__file__), "../../../twscrape_accounts.db"),
             os.path.expanduser("~/.local/share/twscrape/accounts.db"),
         ]
         return next((p for p in candidates if os.path.exists(p)), None)
@@ -617,7 +662,11 @@ class TwscrapeScraper:
             return []
 
         gen = await self._get_xclid_gen(username)
-        st_path = f"/i/api/graphql/{OP_SearchTimeline}"
+        # NOTE: X routes /{hash}/SearchTimeline/SearchTimeline differently from
+        # /{hash}/SearchTimeline — the former returns 200 for non-phone-verified
+        # accounts whereas the latter returns 404. Keep the appended operation
+        # name suffix to preserve this behaviour.
+        st_path = f"/i/api/graphql/{OP_SearchTimeline}/SearchTimeline"
 
         headers = self._make_auth_headers(cookies, {
             "x-twitter-client-language": "ar",
@@ -625,9 +674,9 @@ class TwscrapeScraper:
         if gen:
             headers["x-client-transaction-id"] = gen.calc("GET", st_path)  # type: ignore[attr-defined]
 
-        # Build query: prefer Arabic results for Lebanon trends
+        # Build query: Arabic hashtag, prefer Top (most-interacted) results
         tag_name = trend.name.lstrip("#")
-        query = f"#{tag_name}"
+        query = f"#{tag_name} lang:ar"
 
         variables = {
             "rawQuery": query,
@@ -637,33 +686,21 @@ class TwscrapeScraper:
         }
 
         try:
+            import json as _json
             async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-                try:
-                    import json as _json
-                    resp = await client.get(
-                        f"https://x.com{st_path}",
-                        params={
-                            "variables": _json.dumps(variables),
-                            "features": _json.dumps(GQL_FEATURES),
-                        },
-                        headers=headers,
-                    )
-                except Exception:
-                    import json as _json
-                    resp = await client.get(
-                        f"https://x.com{st_path}",
-                        params={
-                            "variables": _json.dumps(variables),
-                            "features": _json.dumps(GQL_FEATURES),
-                        },
-                        headers=headers,
-                    )
+                resp = await client.get(
+                    f"https://x.com{st_path}",
+                    params={
+                        "variables": _json.dumps(variables, ensure_ascii=False),
+                        "features": _json.dumps(GQL_FEATURES),
+                    },
+                    headers=headers,
+                )
 
                 if resp.status_code != 200:
                     logger.debug("SearchTimeline #%s: %d", tag_name, resp.status_code)
                     return []
 
-                import json as _json
                 data = resp.json()
                 instructions = (
                     data.get("data", {})
@@ -729,8 +766,11 @@ class TwscrapeScraper:
                         },
                         headers=ub_headers,
                     )
+                    if resp.status_code == 429:
+                        logger.warning("UserByScreenName @%s: rate limited (429)", handle)
+                        return []
                     if resp.status_code != 200:
-                        logger.debug("UserByScreenName %s: %d", handle, resp.status_code)
+                        logger.warning("UserByScreenName @%s: %d", handle, resp.status_code)
                         return []
                     result = resp.json().get("data", {}).get("user", {}).get("result", {})
                     user_id = result.get("rest_id") or result.get("legacy", {}).get("id_str")
@@ -762,8 +802,11 @@ class TwscrapeScraper:
                     },
                     headers=ut_headers,
                 )
+                if resp2.status_code == 429:
+                    logger.warning("UserTweets @%s: rate limited (429) — skipping account", handle)
+                    return []
                 if resp2.status_code != 200:
-                    logger.debug("UserTweets %s: %d", handle, resp2.status_code)
+                    logger.warning("UserTweets @%s: %d — skipping", handle, resp2.status_code)
                     return []
 
                 data = resp2.json()
@@ -782,7 +825,10 @@ class TwscrapeScraper:
                         if len(posts) >= limit:
                             break
 
-                logger.info("UserTweets @%s → %d tweets", handle, len(posts))
+                if posts:
+                    logger.info("UserTweets @%s → %d tweets", handle, len(posts))
+                else:
+                    logger.debug("UserTweets @%s → 0 tweets (empty timeline or no entries)", handle)
                 return posts
 
         except Exception as exc:
@@ -987,16 +1033,19 @@ class XScraperService:
         self,
         trends: list[TrendTopic],
         tweets_per_trend: int = 20,
+        use_account_fallback: bool = False,
     ) -> list[ScrapedPost]:
         """Scrape top tweets for each trend using SearchTimeline GraphQL.
 
-        For each trend:
-          1. Calls search_hashtag_top() (SearchTimeline with product=Top)
-          2. Falls back to scanning influencer timelines if search returns 0
-             and tags posts whose hashtags match the trend
+        For each trend calls search_hashtag_top() (SearchTimeline with product=Top).
 
-        Returns deduplicated posts sorted by engagement_velocity descending.
-        Each post has matched_trend and engagement_velocity set.
+        When use_account_fallback=False (default), returns an empty list if
+        SearchTimeline fails — the caller (run_scan) then falls through to the
+        public keyword scan stage. This prevents any fallback to the fixed
+        14-account list.
+
+        When use_account_fallback=True, falls back to _timeline_trend_index()
+        (the old behaviour — account timelines tagged by trend match).
         """
         all_posts: list[ScrapedPost] = []
         search_worked = False
@@ -1013,12 +1062,18 @@ class XScraperService:
             await asyncio.sleep(0.8)
 
         if not search_worked:
-            # SearchTimeline blocked — fall back to timeline indexing
-            logger.info(
-                "SearchTimeline returned 0 for all %d trends — falling back to timeline indexing",
-                len(trends),
-            )
-            all_posts = await self._timeline_trend_index(trends, limit_per_account=40)
+            if use_account_fallback:
+                logger.info(
+                    "SearchTimeline returned 0 for all %d trends — falling back to timeline indexing",
+                    len(trends),
+                )
+                all_posts = await self._timeline_trend_index(trends, limit_per_account=20)
+            else:
+                logger.info(
+                    "SearchTimeline returned 0 for all %d trends — skipping account fallback "
+                    "(public keyword scan will run as Stage 2 in run_scan)",
+                    len(trends),
+                )
 
         deduped = self._dedup(all_posts)
         # Sort by engagement velocity descending (most viral first)
@@ -1029,28 +1084,61 @@ class XScraperService:
         self,
         trends: list[TrendTopic],
         limit_per_account: int = 40,
+        max_age_hours: int = 48,
     ) -> list[ScrapedPost]:
-        """Fallback: scrape influencer timelines, tag posts by matching hashtag."""
+        """Fallback: scrape influencer timelines, tag posts by matching trend.
+
+        Matching strategy (first match wins):
+          1. Post hashtags match a trend name
+          2. Post content contains the trend name or keyword
+        Only posts from the last max_age_hours are kept.
+        """
         timeline_posts = await self.scrape_media_timelines(
-            limit_per_account=limit_per_account, min_engagement=MIN_ENGAGEMENT
+            limit_per_account=limit_per_account,
+            min_engagement=0,
+            max_age_hours=max_age_hours,
         )
+        # Build lookup: lowercase trend name (no #) → TrendTopic
         trend_names = {t.name.lower().lstrip("#"): t for t in trends}
+        # Also map display_name variants
+        for t in trends:
+            dn = t.display_name.lower().lstrip("#")
+            if dn not in trend_names:
+                trend_names[dn] = t
 
         for post in timeline_posts:
             if post.matched_trend:
                 continue
-            # Find which trend this post matches (first matching hashtag wins)
+
+            content_lower = post.content.lower()
+
+            # 1. Match on post hashtags
             for tag in post.hashtags:
                 tag_clean = tag.lower().lstrip("#")
                 if tag_clean in trend_names:
-                    post.matched_trend = trend_names[tag_clean].name
+                    t = trend_names[tag_clean]
+                    post.matched_trend = t.name
                     post.compute_engagement_velocity()
                     break
-            # If no hashtag matched, mark as generic Lebanon content
+
+            # 2. Match on content keyword (trend name appears anywhere in text)
+            if not post.matched_trend:
+                for trend_key, t in trend_names.items():
+                    if trend_key and trend_key in content_lower:
+                        post.matched_trend = t.name
+                        post.compute_engagement_velocity()
+                        break
+
+            # 3. Fallback: tag as generic Lebanon content
             if not post.matched_trend:
                 post.matched_trend = "لبنان"
                 post.compute_engagement_velocity()
 
+        matched = sum(1 for p in timeline_posts if p.matched_trend and p.matched_trend != "لبنان")
+        logger.info(
+            "Timeline index: %d fresh posts, %d matched to specific trends, %d tagged generic",
+            len(timeline_posts), matched, len(timeline_posts) - matched,
+        )
         return timeline_posts
 
     # ── Convenience wrappers ──────────────────────────────────────────────────
@@ -1063,6 +1151,41 @@ class XScraperService:
         """Full trend-first pipeline: discover trends → scrape tweets."""
         trends = await self.discover_trends(max_trends=max_hashtags)
         return await self.scrape_for_trends(trends, tweets_per_trend=tweets_per_tag)
+
+    async def scrape_public_keywords(
+        self,
+        queries: list[str] | None = None,
+        limit_per_query: int = 20,
+    ) -> list[ScrapedPost]:
+        """Public broadcast keyword scan using guest token API (no account needed).
+
+        Unlike scrape_queries() which tries authenticated SearchTimeline first,
+        this method uses ONLY the XGuestScraper for truly public broad discovery.
+        It searches ALL public X posts, not just posts from specific accounts.
+
+        Used as the primary fallback when authenticated trend search fails.
+        Covers hate speech keywords in Arabic, English, and French.
+        """
+        targets = queries or PUBLIC_HATE_SPEECH_QUERIES
+        all_posts: list[ScrapedPost] = []
+
+        for query in targets:
+            posts = await self._guest.search(query, limit=limit_per_query)
+            for post in posts:
+                # Tag with the first word of the query as matched_trend
+                tag = query.lstrip("#").split()[0] if query.strip() else "لبنان"
+                post.matched_trend = tag
+                post.compute_engagement_velocity()
+            all_posts.extend(posts)
+            await asyncio.sleep(1.0)  # respect guest API rate limits
+
+        deduped = self._dedup(all_posts)
+        logger.info(
+            "Public keyword scan: %d queries → %d unique posts (guest API)",
+            len(targets),
+            len(deduped),
+        )
+        return deduped
 
     async def scrape_queries(
         self,
@@ -1087,18 +1210,40 @@ class XScraperService:
         self,
         limit_per_account: int = 30,
         min_engagement: int = 0,
+        max_age_hours: int = 48,
     ) -> list[ScrapedPost]:
-        """Fetch tweets from Lebanese influencer accounts (account-based fallback)."""
+        """Fetch tweets from Lebanese influencer accounts (account-based fallback).
+
+        Only returns posts from the last `max_age_hours` hours (default 48h).
+        This prevents old timeline posts from surfacing as "current" content.
+
+        NOTE: Does NOT call self._dedup so that callers (scrape_for_trends) can do
+        the single authoritative dedup. Using a local set for within-call uniqueness only.
+        """
         all_posts: list[ScrapedPost] = []
+        seen_local: set[str] = set()
+        cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+
         for handle in LEBANESE_INFLUENCER_ACCOUNTS:
             posts = await self._twscrape.fetch_user_timeline(handle, limit=limit_per_account)
+            # Drop posts older than max_age_hours
+            fresh = [p for p in posts if p.posted_at >= cutoff]
+            stale = len(posts) - len(fresh)
+            if stale:
+                logger.info("Timeline @%s: dropped %d stale posts (>%dh old)", handle, stale, max_age_hours)
+            posts = fresh
             if min_engagement > 0:
                 posts = [p for p in posts if p.engagement_total >= min_engagement]
+            # Local dedup only (don't touch self._seen_ids yet)
+            posts = [p for p in posts if p.post_id not in seen_local]
+            seen_local.update(p.post_id for p in posts)
             if posts:
-                logger.info("Timeline @%s → %d posts", handle, len(posts))
+                logger.info("Timeline @%s → %d fresh posts (last %dh)", handle, len(posts), max_age_hours)
+            else:
+                logger.info("Timeline @%s → 0 fresh posts", handle)
             all_posts.extend(posts)
-            await asyncio.sleep(1.5)
-        return self._dedup(all_posts)
+            await asyncio.sleep(2.5)  # 2.5s gap to stay within X rate limits
+        return all_posts
 
     async def fetch_tweet_replies(self, tweet_id: str, limit: int = 10) -> list[ScrapedPost]:
         """Return the most-liked replies to a tweet."""
