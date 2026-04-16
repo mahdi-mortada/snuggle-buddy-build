@@ -2,10 +2,10 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useLiveData } from '@/hooks/useLiveData';
 
 export default function SettingsPage() {
-  const { incidents, alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
+  const { incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert } = useLiveData(30000);
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert }}>
       <div className="space-y-6 max-w-2xl">
         <h1 className="text-xl font-bold text-foreground">Settings</h1>
 

@@ -33,7 +33,7 @@ export default function Alerts() {
   };
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert }}>
       <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-bold text-foreground">Alerts</h1>

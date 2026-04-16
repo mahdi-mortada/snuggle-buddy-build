@@ -11,6 +11,7 @@ type LiveDataContext = {
   stats: DashboardStats;
   lastUpdated: Date;
   connectionStatus?: BackendConnectionStatus;
+  acknowledgeAlert?: (id: string) => void;
 };
 
 export function DashboardLayout({
@@ -29,7 +30,11 @@ export function DashboardLayout({
     <div className="flex h-screen w-full overflow-hidden">
       <AppSidebar unacknowledgedCount={unacknowledgedCount} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header connectionStatus={liveData?.connectionStatus} unacknowledgedAlerts={unacknowledgedCount} />
+        <Header
+          connectionStatus={liveData?.connectionStatus}
+          alerts={liveData?.alerts ?? []}
+          onAcknowledge={liveData?.acknowledgeAlert}
+        />
         <main className="flex-1 overflow-auto p-6 scrollbar-thin">
           {children}
         </main>

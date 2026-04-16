@@ -926,3 +926,151 @@ Replaces twscrape queue-based calls entirely with direct `httpx.AsyncClient` cal
   ```
 - X search (`SearchTimeline`) still returns 404 — @SamirCharb account is not phone-verified; timeline scraping is the reliable path
 - `XClIdGen.create()` currently fails ("no known format found") but `fetch_user_timeline()` works without it
+
+---
+
+## 19. Post-Build Fixes — April 2026 (Session 4)
+
+Everything below was built after Section 18. All changes are on branch **`feature/Scrapping-feature`**.
+
+---
+
+### 19.1 Hate Speech Monitor — Public Discovery Agent
+
+**Problem:** The Hate Speech Monitor was restricted to 14 hardcoded `LEBANESE_INFLUENCER_ACCOUNTS` as its primary data source. When `SearchTimeline` (GraphQL hashtag search) fails (404 for non-phone-verified accounts), the system fell back exclusively to those 14 media accounts, making it account-bound rather than truly public.
+
+**Solution — 3-tier public discovery pipeline:**
+
+1. **Stage 1 (Authenticated SearchTimeline):** Try Lebanon trend discovery → `scrape_for_trends()` per trend (existing, rarely works without phone-verified account)
+2. **Stage 2 (Public Guest API Keyword Scan — NEW PRIMARY FALLBACK):** Uses `XGuestScraper` (guest token, no account) to search 24 broad keyword queries across Arabic, English, and French. Searches ALL public X posts — not restricted to any specific accounts.
+3. **Stage 3 (Seed queries with guest fallback):** Curated 5-query list with guest API fallback (existing)
+
+**Account timeline scraping (`scrape_media_timelines()`) is intentionally removed from the pipeline.** It is no longer called in `run_scan()`.
+
+**New files/changes:**
+
+- `backend/app/services/x_scraper.py`:
+  - Added `PUBLIC_HATE_SPEECH_QUERIES` list — 24 queries covering sectarian hate, anti-refugee, political incitement, in Arabic + English + French
+  - Added `XScraperService.scrape_public_keywords()` — uses only `XGuestScraper`, no account required
+
+- `backend/app/services/social_monitor.py`:
+  - Replaced account-based fallback with `scrape_public_keywords()` as Stage 2
+  - Added `AgentStatus` dataclass (mode, is_running, scan_count, last/next scan, sources_last_scan, queries_used)
+  - Added `_agent_status` to `SocialMonitorService.__init__` (pre-initialized with `queries_used=24`)
+  - Updated `run_scan()` to track timing and populate `_agent_status` after each scan
+  - Added `get_agent_status()` method
+
+- `backend/app/api/v1/endpoints/hate_speech.py`:
+  - Added `AgentStatusOut` Pydantic model
+  - Added `GET /hate-speech/agent-status` endpoint
+
+- `src/services/backendApi.ts`:
+  - Added `HateSpeechAgentStatus` type
+  - Added `fetchHateSpeechAgentStatus()` function
+
+- `src/pages/HateSpeechMonitor.tsx`:
+  - Added `AgentStatusPanel` component — shows mode, scan count, last/next scan, sources used, query count
+  - Added `agentStatus` state, loaded in parallel with stats and posts
+  - Updated header subtitle: "وكيل اكتشاف عام · يفحص جميع المنشورات العامة · لبنان"
+  - Displays `AgentStatusPanel` between stats strip and trend cluster chips
+
+### 19.2 Current Git State
+
+| Branch | Status |
+|--------|--------|
+| `main` | Last merged: Section 16 fixes |
+| `fix-telegram-validation` | Merged into main (PR #7) |
+| `feature/Scrapping-feature` | **Active — 5+ commits ahead of main** |
+
+### 19.3 Known State After Session 4
+
+- Discovery pipeline is now fully public: `scrape_public_keywords()` uses `XGuestScraper` with 24 keyword queries, no specific accounts required
+- `AgentStatusPanel` shows in the UI: mode, queries_used (24), last scan time, next scan countdown, sources used in last scan
+- Agent status endpoint verified: `GET /api/v1/hate-speech/agent-status` → `queries_used: 24`, `mode: public_discovery`
+- Account-based fallback (`scrape_media_timelines()`) still exists in `x_scraper.py` as a method but is no longer called from `run_scan()`
+
+---
+
+## 20. Post-Build Fixes — April 2026 (Session 5)
+
+Everything below was built after Section 19. All changes are on branch **`feature/Scrapping-feature`**.
+
+---
+
+### 20.1 Hashtag Search — Live Twitter Results via SearchTimeline Fix
+
+**Problem:** The hashtag search bar in HateSpeechMonitor was returning results from the 88 stored posts (from predefined Lebanese accounts) instead of performing a real live search on Twitter. The user wanted the top 10 most-interacted posts from ALL of Twitter for any searched hashtag.
+
+**Root cause — URL bug in `search_hashtag_top()`:**
+
+`twscrape` now stores GraphQL operation IDs in the format `"{hash}/{OperationName}"` (e.g. `OP_SearchTimeline = "AIdc203rPpK_k_2KWSdm7g/SearchTimeline"`). The old code built the URL as:
+```
+https://x.com/i/api/graphql/AIdc203rPpK_k_2KWSdm7g/SearchTimeline   ← returns 404
+```
+
+But X routes the endpoint differently — appending the operation name a second time works:
+```
+https://x.com/i/api/graphql/AIdc203rPpK_k_2KWSdm7g/SearchTimeline/SearchTimeline   ← returns 200 ✅
+```
+
+This URL with the `/SearchTimeline` suffix appended returns **19+ real Arabic posts with full engagement data** including accounts from all over Twitter (not limited to the 14 predefined Lebanese accounts).
+
+**Fix — `backend/app/services/x_scraper.py`:**
+
+Changed `search_hashtag_top()` URL construction:
+```python
+# Old (404):
+st_path = f"/i/api/graphql/{OP_SearchTimeline}"
+# New (200 — works for Arabic without phone verification):
+st_path = f"/i/api/graphql/{OP_SearchTimeline}/SearchTimeline"
+```
+
+Also added:
+- `lang:ar` suffix to the search query for better Arabic results
+- `ensure_ascii=False` in `json.dumps()` to preserve Arabic characters in URLs
+
+**Fix — `backend/app/api/v1/endpoints/hate_speech.py`:**
+
+Updated `/hate-speech/search` endpoint with a 3-tier priority chain:
+1. **Stage 1 — Authenticated SearchTimeline** (new primary): Creates a synthetic `TrendTopic` and calls `search_hashtag_top()` → returns top Arabic posts from ALL of Twitter sorted by engagement
+2. **Stage 2 — Guest token** (existing fallback, for English queries)
+3. **Stage 3 — Stored agent posts** (last resort only)
+
+**Results verified:**
+- `@mshinqiti` — 14,515 engagement (NOT a predefined account)
+- `@AlHasanN313` — 7,360 engagement
+- `@Ro_gopa` — 4,576 engagement
+- `@AJArabic` — 737 engagement
+- Response time: ~2.4 seconds
+
+**Bonus — scan pipeline also improved:** The same URL fix applies to `scrape_for_trends()` (Stage 1 of the background scan). The scan now uses "Trend Search" as a source alongside "Curated Queries", discovering posts from trending Lebanon topics via `search_hashtag_top()`.
+
+---
+
+### 20.2 Other Session 5 Fixes
+
+- **`list_all()` filter changed to `scraped_at`** (`social_monitor.py`): The post feed was empty despite 68+ posts in store because `list_all()` filtered by `posted_at` (tweet's original post time). Account timeline posts are often 24–48h old. Fixed to filter by `scraped_at` (when our system collected the post) so the feed always shows recently collected posts.
+
+- **Stage 4 account timeline fallback restored** (`run_scan()`): Was incorrectly removed in Session 4. Restored as a fallback (when Stages 1–3 return fewer than 20 posts). Uses `UserTweets` GraphQL (different from SearchTimeline — not blocked).
+
+- **Arabic-only filter added** (`run_scan()`): After all scraping stages, filters posts to `lang in ("ar", "")` — drops French and English posts from multilingual Lebanese accounts.
+
+- **RTL `#` fix in HashtagSearchPanel** (HateSpeechMonitor.tsx): The `#` prefix was positioned at `left-3` with `pl-7` padding. For RTL Arabic input, the `#` should be at `right-3` with `pr-8` padding.
+
+---
+
+### 20.3 Current Git State
+
+| Branch | Status |
+|--------|--------|
+| `main` | Last merged: Section 16 fixes |
+| `fix-telegram-validation` | Merged into main (PR #7) |
+| `feature/Scrapping-feature` | **Active — 6+ commits ahead of main** |
+
+### 20.4 Known State After Session 5
+
+- Hashtag search returns live Twitter results from all of Twitter (not predefined accounts)
+- `search_hashtag_top()` URL fix also benefits the background scan pipeline — "Trend Search" now appears as a scan source
+- Arabic-only filtering in effect: only `lang=ar` and `lang=""` posts stored
+- `list_all()` uses `scraped_at` filter so feed is always populated after any scan
+- Stage 4 account timeline fallback runs when fewer than 20 posts collected via public discovery

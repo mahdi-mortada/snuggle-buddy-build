@@ -1,29 +1,31 @@
-"""Social Media Hate Speech Monitor Service.
+"""Social Media Hate Speech Monitor Service — Trend-First Architecture.
 
 Orchestrates the full pipeline:
-  1. Scrape X posts via x_scraper_service
-  2. Run hate_speech_detector on each post
-  3. Store results in memory (+ PostgreSQL when STORAGE_MODE=postgres)
-  4. Expose aggregated stats and flagged post feed
+  1. Discover Lebanon trending topics (via x_scraper_service.discover_trends)
+  2. Scrape top tweets for each trend
+  3. Run hate_speech_detector on each tweet
+  4. Compute priority_score = 0.55 * hate_score + 0.30 * velocity_score + 0.15 * trend_rank_score
+  5. Store enriched posts in memory (+ pruned at 72h)
+  6. Expose stats, trend clusters, and ranked post feed via the API
 
-In-memory store mirrors the pattern used by local_store.py so the
-feature works in both local and postgres modes.
+Priority score combines:
+  - hate_score          (0–100): how hateful/risky the content is
+  - engagement_velocity (0–100): engagement per hour (virality/traction signal)
+  - trend_rank_score    (0–100): how prominently the topic is trending in Lebanon
 
-When no X accounts are configured and the store is empty, a set of
-realistic demo posts is seeded automatically so the UI is always
-functional (demo mode).
+This allows surfacing: tweets that are BOTH spreading fast AND risky.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import random
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from app.services.hate_speech_detector import HateSpeechResult, hate_speech_detector
-from app.services.x_scraper import ScrapedPost, x_scraper_service
+from app.services.x_scraper import PUBLIC_HATE_SPEECH_QUERIES, ScrapedPost, TrendTopic, x_scraper_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +42,15 @@ CATEGORY_LABELS: dict[str, str] = {
 
 @dataclass
 class SocialPost:
-    """Fully enriched social post with hate speech analysis."""
-    id: str                                   # platform:post_id
-    platform: str                             # 'x'
+    """Enriched tweet with hate speech analysis + priority scoring."""
+    id: str                        # "x:{tweet_id}"
+    platform: str                  # "x"
     author_handle: str
     author_id: str
     author_age_days: int | None
     content: str
     language: str
-    hate_score: float                         # 0–100
+    hate_score: float              # 0–100
     category: str
     is_flagged: bool
     keyword_matches: list[str]
@@ -62,8 +64,29 @@ class SocialPost:
     scraped_at: datetime
     source_url: str
     hashtags: list[str]
+    # Trend-first fields
+    matched_trend: str = ""           # which trend this post was found under
+    engagement_velocity: float = 0.0  # engagement per hour (virality signal)
+    priority_score: float = 0.0       # combined score for surfacing risky viral posts
+    # Review fields
     reviewed: bool = False
-    review_action: str = ""                   # 'confirmed' | 'dismissed' | ''
+    review_action: str = ""            # "confirmed" | "dismissed" | ""
+
+
+@dataclass
+class TrendCluster:
+    """Aggregated risk stats for a trending topic."""
+    trend: str                     # hashtag name (no #)
+    display_name: str              # with # prefix
+    tweet_volume: int | None       # from X trends API
+    trend_rank: int
+    post_count: int
+    flagged_count: int
+    avg_risk_score: float
+    max_risk_score: float
+    total_engagement: int
+    top_post_ids: list[str]        # top 5 by priority_score
+    source: str                    # "x_api" | "curated"
 
 
 @dataclass
@@ -78,207 +101,236 @@ class HateSpeechStats:
     last_scan_at: datetime | None = None
     accounts_flagged: list[str] = field(default_factory=list)
     trending_hashtags: list[str] = field(default_factory=list)
-    top_posts_by_engagement: list[str] = field(default_factory=list)  # post ids sorted by engagement
-    # hashtag → top 5 post ids (by engagement) for that hashtag
+    top_posts_by_engagement: list[str] = field(default_factory=list)
     hashtag_top_posts: dict[str, list[str]] = field(default_factory=dict)
+    # New: trend cluster summaries
+    active_trends: list[TrendCluster] = field(default_factory=list)
 
 
-# ── Demo post definitions ─────────────────────────────────────────────────────
-# (handle, lang, content, keyword_matches, category, score, hashtags, likes, rts, replies)
+@dataclass
+class AgentStatus:
+    """Real-time status of the public discovery agent.
 
-_DEMO_POSTS = [
-    # sectarian — Arabic
-    ("user_beiRUT01",   "ar",
-     "الشيعة والسنة لازم يرحلوا من لبنان، هالبلد ما رح يتعدل بوجودهم #لبنان",
-     ["شيعة", "سنة"], "sectarian", 82, ["لبنان"], 120, 45, 30),
-    ("anti_leb_2024",   "ar",
-     "الروافض كفار ومين يتعاون معهم خاين #حزب_الله",
-     ["روافض", "حزب الشيطان"], "sectarian", 91, ["حزب_الله"], 55, 22, 18),
-    ("free_leb_99",     "en",
-     "The Shia militias are destroying Lebanon, they should be eliminated permanently.",
-     ["shia", "militia"], "sectarian", 78, [], 88, 33, 27),
-    ("Leb_patriot77",   "en",
-     "Sunni extremists funded by Gulf states are the real problem in Lebanon. #Lebanon",
-     ["sunni"], "sectarian", 65, ["Lebanon"], 210, 77, 54),
-    ("anon_troll",      "en",
-     "Shia politicians are destroying Lebanon from within. When will people wake up?",
-     ["shia"], "sectarian", 67, [], 445, 178, 112),
-    ("news_comment_ar", "ar",
-     "درزية ومسيحيين ومسلمين، كلهم بدهم يدمروا لبنان بطريقتهم",
-     ["درزي", "ماروني"], "sectarian", 74, [], 92, 34, 27),
-    ("casual_user_leb", "ar",
-     "الميليشيات الطائفية في لبنان هي السبب الرئيسي لكل الأزمات",
-     ["ميليشيا", "شيعي"], "sectarian", 55, ["لبنان"], 134, 52, 38),
-    ("leb_politics",    "en",
-     "The militia groups backed by Iran have turned Lebanon into a proxy battleground.",
-     ["militia"], "sectarian", 58, [], 220, 87, 64),
-    # anti_refugee — Arabic / French / English
-    ("lebanese_first",  "ar",
-     "السوريين النازحين يسرقون فرص اللبنانيين، طردوهم كلهم #سوريا_ارحلوا",
-     ["نازح", "سوري", "النازحين"], "anti_refugee", 88, ["سوريا_ارحلوا"], 340, 112, 89),
-    ("Rima_LB",         "fr",
-     "Les réfugiés syriens volent nos emplois et nos ressources. Ils doivent partir.",
-     ["réfugié", "syrien", "déplacé"], "anti_refugee", 73, [], 67, 28, 19),
-    ("leb_nat2023",     "en",
-     "Palestinian camp residents are a threat to Lebanese sovereignty. #BeirutFirst",
-     ["palestinian", "camp"], "anti_refugee", 69, ["BeirutFirst"], 155, 61, 43),
-    ("voice_of_leb",    "ar",
-     "الفلسطينيين في المخيمات مسلحين ويهددون الأمن اللبناني. حل المخيمات فوراً!",
-     ["فلسطيني", "مخيم"], "anti_refugee", 84, ["مخيم"], 289, 94, 67),
-    ("concerned_leb",   "ar",
-     "لو ما كانوا النازحين بلبنان كانت الأوضاع الاقتصادية أحسن بكتير",
-     ["نازح"], "anti_refugee", 53, [], 98, 37, 25),
-    ("daily_rant_leb",  "en",
-     "Refugee crisis is bleeding Lebanon dry. The government does nothing.",
-     ["refugee", "displaced"], "anti_refugee", 61, [], 310, 124, 88),
-    # political_incite
-    ("freedom_leb",     "ar",
-     "يستحق الموت كل من يتعاون مع الاحتلال الإيراني في لبنان #مقاومة",
-     ["يستحق الموت"], "political_incite", 95, ["مقاومة"], 178, 89, 55),
-    ("resistance_2024", "en",
-     "Political leaders who support Hezbollah should be executed without trial. #Lebanon",
-     ["execute"], "political_incite", 90, ["Lebanon"], 234, 102, 77),
-    ("lebanese_anger",  "fr",
-     "Il faut éliminer tous les politiciens corrompus de ce pays. #LibanLibre",
-     ["éliminer"], "political_incite", 76, ["LibanLibre"], 98, 41, 33),
-    ("anon_account_x",  "ar",
-     "يجب تصفية كل من يتعاون مع إسرائيل في لبنان، لا عفو ولا مسامحة.",
-     ["يجب تصفيته", "اغتيال"], "political_incite", 93, [], 456, 201, 143),
-    ("fr_user_leb",     "fr",
-     "Les milices chiites ont volé l'état libanais. Il faut les neutraliser.",
-     ["chiite"], "political_incite", 80, [], 134, 55, 39),
-    ("leb_voice_2025",  "ar",
-     "هالنواب اللي بالبرلمان يستاهلوا يتعاقبوا بقسوة على كل ما عملوه بالبلد",
-     [], "political_incite", 42, ["لبنان"], 187, 73, 51),
-    # misogynistic
-    ("leb_trad_man",    "ar",
-     "المرأة اللبنانية التي تشارك في السياسة هي قحبة وما تستاهل احترام #نساء",
-     ["قحبة", "ناقصة عقل"], "misogynistic", 87, ["نساء"], 67, 18, 24),
-    ("anon_user_88",    "en",
-     "Women in Lebanese politics are just there to look good. Go back to kitchen.",
-     ["go back to kitchen", "woman should"], "misogynistic", 72, [], 43, 15, 19),
-    # clean (lower score — below flag threshold)
-    ("news_follower",   "ar",
-     "الوضع في لبنان يزداد سوءاً بسبب الفساد السياسي والطائفية المتجذرة",
-     [], "clean", 18, ["لبنان"], 89, 34, 22),
-    ("lebanon_watch",   "en",
-     "Sectarian divisions in Lebanon make governance almost impossible. Reform is needed.",
-     [], "clean", 12, ["Lebanon"], 156, 58, 41),
-    ("leb_observer",    "fr",
-     "Le sectarisme au Liban est un frein majeur au développement économique.",
-     [], "clean", 8, [], 72, 27, 18),
-]
+    Tracks what the autonomous scanning agent is doing, what strategies it used,
+    and when the next scan is scheduled — so the UI can show agent activity
+    instead of a manual 'Scan Now' button.
+    """
+    mode: str = "public_discovery"         # discovery mode label
+    is_running: bool = False               # True during active scan
+    scan_count: int = 0                    # total scans completed since startup
+    total_posts_discovered: int = 0        # cumulative unique posts stored
+    last_scan_at: datetime | None = None
+    last_scan_duration_seconds: float = 0.0
+    last_scan_posts_found: int = 0         # posts analyzed in the last scan
+    next_scan_at: datetime | None = None
+    sources_last_scan: list[str] = field(default_factory=list)
+    queries_used: int = 0
+    discovery_strategies: list[str] = field(default_factory=list)
+    scan_interval_seconds: int = 1800      # matches Celery beat (30 min)
+
+
+# ── Demo posts ─────────────────────────────────────────────────────────────────
+# (handle, lang, content, kw_matches, category, score, hashtags, likes, rts, replies, trend)
+
+
+def _compute_priority(
+    hate_score: float,
+    engagement_velocity: float,
+    trend_rank: int,
+    author_age_days: int | None,
+) -> float:
+    """Compute priority score for surfacing risky + viral posts.
+
+    Formula:
+      priority = 0.55 * hate_score
+               + 0.30 * min(100, engagement_velocity)
+               + 0.15 * trend_rank_score
+
+    trend_rank_score = max(0, 100 - (rank - 1) * 10)
+      → rank 1 = 100, rank 2 = 90, ..., rank 10 = 10, rank 11+ = 0
+
+    Bonus: new account (< 30 days) with high hate score gets +5
+    """
+    trend_rank_score = max(0.0, 100.0 - (trend_rank - 1) * 10.0)
+    velocity_score = min(100.0, engagement_velocity)
+
+    score = (
+        0.55 * hate_score
+        + 0.30 * velocity_score
+        + 0.15 * trend_rank_score
+    )
+
+    if author_age_days is not None and author_age_days < 30 and hate_score >= 50:
+        score = min(100.0, score + 5.0)
+
+    return round(score, 1)
 
 
 class SocialMonitorService:
-    """In-memory store + pipeline orchestrator for hate speech monitoring."""
+    """In-memory store + trend-first pipeline orchestrator."""
 
     def __init__(self) -> None:
-        self._posts: dict[str, SocialPost] = {}   # id → SocialPost
+        self._posts: dict[str, SocialPost] = {}
         self._is_running = False
-        self._scan_interval_seconds = 1800         # 30 minutes
-        self._rng = random.Random(42)
+        self._scan_interval_seconds = 1800   # 30 minutes
 
-    # ── Demo data (used when X scraping is unavailable) ──────────────────────
-
-    async def seed_demo_posts(self) -> int:
-        """Populate the store with realistic demo posts for UI testing.
-        Called automatically when real scraping returns 0 results.
-        """
-        now = datetime.now(UTC)
-        added = 0
-        for i, row in enumerate(_DEMO_POSTS):
-            handle, lang, content, kw_matches, category, score, hashtags, likes, rts, replies = row
-            post_id = f"x:demo_{i:04d}"
-            if post_id in self._posts:
-                continue
-            hours_ago = self._rng.uniform(0.5, 23.0)
-            posted_at = now - timedelta(hours=hours_ago)
-            post = SocialPost(
-                id=post_id,
-                platform="x",
-                author_handle=handle,
-                author_id=f"uid_{handle}",
-                author_age_days=self._rng.randint(15, 1800),
-                content=content,
-                language=lang,
-                hate_score=float(score),
-                category=category,
-                is_flagged=score >= 51,
-                keyword_matches=kw_matches,
-                model_confidence=round(score / 100 * self._rng.uniform(0.85, 0.99), 3),
-                like_count=likes,
-                retweet_count=rts,
-                reply_count=replies,
-                quote_count=self._rng.randint(0, 20),
-                engagement_total=likes + rts + replies,
-                posted_at=posted_at,
-                scraped_at=now,
-                source_url=f"https://twitter.com/{handle}/status/{10000000000 + i}",
-                hashtags=hashtags,
-            )
-            self._posts[post_id] = post
-            added += 1
-
-        logger.info("Seeded %d demo hate speech posts", added)
-        return added
+        self._last_trend_map: dict[str, TrendTopic] = {}  # trend.name → TrendTopic
+        self._agent_status = AgentStatus(
+            scan_interval_seconds=self._scan_interval_seconds,
+            queries_used=len(PUBLIC_HATE_SPEECH_QUERIES),
+        )
 
     # ── Pipeline ──────────────────────────────────────────────────────────────
 
     async def run_scan(self, include_replies: bool = True) -> dict[str, int]:
-        """Run a full scrape + detection cycle. Returns summary counts.
+        """Run a full public-discovery → scrape → detect → score cycle.
 
-        Strategy (in order of preference):
-        1. user_tweets() from Lebanese media accounts (works without search access)
-        2. Keyword search (requires phone-verified X account)
-        3. Demo data fallback when no real scraping succeeds
+        Discovery pipeline (each stage only runs if previous returned < 30 posts):
+          1. Lebanon trend discovery → authenticated SearchTimeline per trend
+          2. Public keyword scan via guest token API (no account — truly public)
+          3. Seed keyword queries (authenticated SearchTimeline + guest fallback)
+
+        Account-based timeline scraping (14 fixed accounts) is intentionally
+        removed from the pipeline. Discovery is now fully public.
+
+        Returns summary counts: {scraped, analyzed, flagged}.
         """
-        logger.info("Social monitor: starting X scan")
+        scan_start = time.monotonic()
+        logger.info("Social monitor: starting public discovery scan")
         scraped: list[ScrapedPost] = []
+        trends: list[TrendTopic] = []
+        sources_used: list[str] = []
+        strategies_used: list[str] = []
 
-        # Primary: trending Lebanon hashtags → top Arabic tweets by engagement
+        self._agent_status.is_running = True
+
+        # ── Stage 1: Lebanon trend discovery → authenticated SearchTimeline ──
         try:
-            trending_posts = await x_scraper_service.scrape_trending(max_hashtags=8, tweets_per_tag=20)
+            trends = await x_scraper_service.discover_trends(max_trends=15)
+            # Update local trend map for priority scoring
+            self._last_trend_map = {t.name.lower(): t for t in trends}
+
+            trending_posts = await x_scraper_service.scrape_for_trends(
+                trends, tweets_per_trend=20, use_account_fallback=False
+            )
             if trending_posts:
-                logger.info("Social monitor: %d posts from trending hashtags", len(trending_posts))
+                logger.info("Trend-first scrape: %d posts from %d trends", len(trending_posts), len(trends))
                 scraped.extend(trending_posts)
+                sources_used.append("trend_search")
+                strategies_used.append("authenticated_trend_search")
         except Exception as exc:
-            logger.warning("Trending scrape failed: %s", exc)
+            logger.warning("Trend-first scrape failed: %s", exc)
 
-        # Secondary: influencer timelines (fallback when search is blocked)
-        if not scraped:
+        # ── Stage 2: Public keyword scan via guest API (no account needed) ──
+        # This is the PRIMARY public fallback. Searches ALL public X posts,
+        # not restricted to any specific accounts.
+        if len(scraped) < 30:
             try:
-                timeline_posts = await x_scraper_service.scrape_media_timelines(
-                    limit_per_account=25, min_engagement=1
-                )
-                if timeline_posts:
-                    logger.info("Social monitor: %d posts from influencer timelines", len(timeline_posts))
-                    scraped.extend(timeline_posts)
+                public_posts = await x_scraper_service.scrape_public_keywords()
+                if public_posts:
+                    logger.info("Public keyword scan: %d posts (guest API, no account)", len(public_posts))
+                    scraped.extend(public_posts)
+                    sources_used.append("public_keyword_search")
+                    strategies_used.append("guest_api_keyword_scan")
             except Exception as exc:
-                logger.warning("Timeline scrape failed: %s", exc)
+                logger.warning("Public keyword scan failed: %s", exc)
 
-        # Tertiary: keyword search
-        if not scraped:
+        # ── Stage 3: Curated seed queries (authenticated + guest fallback) ──
+        if len(scraped) < 20:
             try:
                 query_posts = await x_scraper_service.scrape_queries()
-                scraped.extend(query_posts)
+                if query_posts:
+                    scraped.extend(query_posts)
+                    sources_used.append("curated_queries")
+                    strategies_used.append("seed_query_search")
             except Exception as exc:
-                logger.warning("Query scrape failed: %s", exc)
+                logger.warning("Query scrape fallback failed: %s", exc)
 
-        # If X scraping produced nothing, seed demo data (demo/dev mode)
+        # ── Stage 4: Lebanese media account timelines (reliable fallback) ──
+        # Uses UserTweets GraphQL (different from SearchTimeline — not blocked).
+        # Provides real Arabic/French content from verified Lebanese sources.
+        # Only runs when all public-discovery stages return too few posts.
+        if len(scraped) < 20:
+            try:
+                account_posts = await x_scraper_service.scrape_media_timelines(
+                    limit_per_account=30, min_engagement=0, max_age_hours=48
+                )
+                if account_posts:
+                    # Tag each post with best matching trend from content
+                    for p in account_posts:
+                        if not p.matched_trend:
+                            p.matched_trend = "لبنان"
+                        p.compute_engagement_velocity()
+                    logger.info("Account timeline fallback: %d posts from Lebanese media", len(account_posts))
+                    scraped.extend(account_posts)
+                    sources_used.append("lebanese_media_accounts")
+                    strategies_used.append("account_timeline_fallback")
+            except Exception as exc:
+                logger.warning("Account timeline fallback failed: %s", exc)
+
+        # ── Filter: Arabic only ──────────────────────────────────────────────────
+        # X sets lang="ar" for Arabic tweets. Accept lang="" (unknown) too since
+        # the guest API sometimes omits the field. Drop all other languages.
+        arabic_only = [r for r in scraped if r.lang in ("ar", "")]
+        non_arabic = len(scraped) - len(arabic_only)
+        if non_arabic:
+            logger.info("Language filter: dropped %d non-Arabic posts (kept %d Arabic)", non_arabic, len(arabic_only))
+        scraped = arabic_only
+
         if not scraped:
-            logger.info("No posts scraped from X — loading demo data for UI testing")
-            demo_added = await self.seed_demo_posts()
-            return {"scraped": demo_added, "analyzed": demo_added, "flagged": sum(
+            logger.info("No Arabic posts scraped — nothing to analyze")
+            self._agent_status.is_running = False
+            self._agent_status.scan_count += 1
+            self._agent_status.last_scan_at = datetime.now(UTC)
+            self._agent_status.last_scan_duration_seconds = round(time.monotonic() - scan_start, 1)
+            self._agent_status.last_scan_posts_found = 0
+            self._agent_status.sources_last_scan = sources_used
+            self._agent_status.discovery_strategies = strategies_used
+            self._agent_status.queries_used = len(PUBLIC_HATE_SPEECH_QUERIES)
+            self._agent_status.next_scan_at = datetime.now(UTC) + timedelta(seconds=self._scan_interval_seconds)
+            return {"scraped": 0, "analyzed": 0, "flagged": sum(
                 1 for p in self._posts.values() if p.is_flagged
             )}
 
+        # ── Drop posts older than 48 hours (timeline scraping can return stale content) ──
+        now = datetime.now(UTC)
+        max_post_age = timedelta(hours=48)
+        fresh_scraped = [r for r in scraped if (now - r.posted_at) <= max_post_age]
+        stale_count = len(scraped) - len(fresh_scraped)
+        if stale_count:
+            logger.info("Dropped %d stale posts (>48h old) — keeping %d fresh posts", stale_count, len(fresh_scraped))
+        scraped = fresh_scraped
+
+        if not scraped:
+            logger.info("All scraped posts were stale (>48h) — no new content to analyze")
+            return {"scraped": 0, "analyzed": 0, "flagged": sum(
+                1 for p in self._posts.values() if p.is_flagged
+            )}
+
+        # ── Stage 3: Hate speech detection ──
         analyzed = 0
         flagged = 0
 
         for raw in scraped:
             post_id = f"x:{raw.post_id}"
             if post_id in self._posts:
+                # Update engagement metrics for already-seen posts
+                existing = self._posts[post_id]
+                existing.like_count = raw.like_count
+                existing.retweet_count = raw.retweet_count
+                existing.reply_count = raw.reply_count
+                existing.quote_count = raw.quote_count
+                existing.engagement_total = raw.engagement_total
+                existing.engagement_velocity = raw.engagement_velocity
+                # Re-score priority with fresh engagement
+                trend_obj = self._last_trend_map.get(existing.matched_trend.lower())
+                trend_rank = trend_obj.trend_rank if trend_obj else 99
+                existing.priority_score = _compute_priority(
+                    existing.hate_score,
+                    raw.engagement_velocity,
+                    trend_rank,
+                    existing.author_age_days,
+                )
                 continue
 
             try:
@@ -286,6 +338,24 @@ class SocialMonitorService:
             except Exception as exc:
                 logger.debug("Detector failed for %s: %s", raw.post_id, exc)
                 continue
+
+            # Find trend rank for priority scoring
+            trend_obj = self._last_trend_map.get(raw.matched_trend.lower())
+            trend_rank = trend_obj.trend_rank if trend_obj else 99
+
+            # New-account suspicion boost
+            hate_score = result.hate_score
+            if raw.account_age_days is not None and raw.account_age_days < 30:
+                hate_score = min(100.0, hate_score * 1.2)
+
+            is_flagged = hate_score >= 51.0
+
+            priority = _compute_priority(
+                hate_score,
+                raw.engagement_velocity,
+                trend_rank,
+                raw.account_age_days,
+            )
 
             post = SocialPost(
                 id=post_id,
@@ -295,9 +365,9 @@ class SocialMonitorService:
                 author_age_days=raw.account_age_days,
                 content=raw.content,
                 language=result.language,
-                hate_score=result.hate_score,
+                hate_score=hate_score,
                 category=result.category,
-                is_flagged=result.is_flagged,
+                is_flagged=is_flagged,
                 keyword_matches=result.keyword_matches,
                 model_confidence=result.model_confidence,
                 like_count=raw.like_count,
@@ -309,24 +379,38 @@ class SocialMonitorService:
                 scraped_at=datetime.now(UTC),
                 source_url=raw.source_url,
                 hashtags=raw.hashtags,
+                matched_trend=raw.matched_trend,
+                engagement_velocity=raw.engagement_velocity,
+                priority_score=priority,
             )
-
-            # Context multiplier: new account + high engagement = higher suspicion
-            if post.author_age_days is not None and post.author_age_days < 30:
-                post.hate_score = min(100.0, post.hate_score * 1.2)
-                if post.hate_score >= 51.0:
-                    post.is_flagged = True
 
             self._posts[post_id] = post
             analyzed += 1
-            if post.is_flagged:
+            if is_flagged:
                 flagged += 1
 
-        # Prune old entries (keep last 72h)
+        # Prune old entries (keep last 72h by posted_at)
         cutoff = datetime.now(UTC) - timedelta(hours=72)
-        self._posts = {k: v for k, v in self._posts.items() if v.scraped_at >= cutoff}
+        self._posts = {k: v for k, v in self._posts.items() if v.posted_at >= cutoff}
 
-        logger.info("Social monitor scan: scraped=%d analyzed=%d flagged=%d", len(scraped), analyzed, flagged)
+        logger.info(
+            "Social monitor scan: scraped=%d analyzed=%d flagged=%d trends=%d strategies=%s",
+            len(scraped), analyzed, flagged, len(trends), strategies_used,
+        )
+
+        # ── Update agent status ──
+        now = datetime.now(UTC)
+        self._agent_status.is_running = False
+        self._agent_status.scan_count += 1
+        self._agent_status.last_scan_at = now
+        self._agent_status.last_scan_duration_seconds = round(time.monotonic() - scan_start, 1)
+        self._agent_status.last_scan_posts_found = analyzed
+        self._agent_status.total_posts_discovered += analyzed
+        self._agent_status.sources_last_scan = sources_used
+        self._agent_status.discovery_strategies = strategies_used
+        self._agent_status.queries_used = len(PUBLIC_HATE_SPEECH_QUERIES)
+        self._agent_status.next_scan_at = now + timedelta(seconds=self._scan_interval_seconds)
+
         return {"scraped": len(scraped), "analyzed": analyzed, "flagged": flagged}
 
     # ── Background loop ───────────────────────────────────────────────────────
@@ -339,7 +423,6 @@ class SocialMonitorService:
         logger.info("Social monitor background loop started (interval=%ds)", self._scan_interval_seconds)
 
     async def _loop(self) -> None:
-        # First scan after a short delay to let the app fully start
         await asyncio.sleep(30)
         while True:
             try:
@@ -356,6 +439,7 @@ class SocialMonitorService:
         category: str | None = None,
         min_score: float = 51.0,
         reviewed: bool | None = None,
+        sort: str = "priority",
     ) -> list[SocialPost]:
         posts = [
             p for p in self._posts.values()
@@ -363,14 +447,40 @@ class SocialMonitorService:
             and (category is None or p.category == category)
             and (reviewed is None or p.reviewed == reviewed)
         ]
-        posts.sort(key=lambda p: p.hate_score, reverse=True)
-        return posts[:limit]
+        return self._sort_posts(posts, sort)[:limit]
 
-    def list_all(self, limit: int = 100, hours: int = 24) -> list[SocialPost]:
+    def list_all(
+        self,
+        limit: int = 100,
+        hours: int = 24,
+        sort: str = "priority",
+    ) -> list[SocialPost]:
+        # Filter by scraped_at (when WE collected it) not posted_at.
+        # Account timeline posts may be 24-48h old but were scraped moments ago,
+        # so filtering by posted_at would hide them. scraped_at is always recent.
         cutoff = datetime.now(UTC) - timedelta(hours=hours)
         posts = [p for p in self._posts.values() if p.scraped_at >= cutoff]
-        posts.sort(key=lambda p: p.scraped_at, reverse=True)
-        return posts[:limit]
+        return self._sort_posts(posts, sort)[:limit]
+
+    def list_by_trend(self, trend_name: str, limit: int = 20) -> list[SocialPost]:
+        """Return posts for a specific trend, sorted by priority."""
+        posts = [
+            p for p in self._posts.values()
+            if p.matched_trend.lower() == trend_name.lower()
+        ]
+        return self._sort_posts(posts, "priority")[:limit]
+
+    def _sort_posts(self, posts: list[SocialPost], sort: str) -> list[SocialPost]:
+        if sort == "priority":
+            return sorted(posts, key=lambda p: p.priority_score, reverse=True)
+        if sort == "score":
+            return sorted(posts, key=lambda p: p.hate_score, reverse=True)
+        if sort == "engagement":
+            return sorted(posts, key=lambda p: p.engagement_total, reverse=True)
+        if sort == "velocity":
+            return sorted(posts, key=lambda p: p.engagement_velocity, reverse=True)
+        # default: recent
+        return sorted(posts, key=lambda p: p.scraped_at, reverse=True)
 
     def get_stats(self) -> HateSpeechStats:
         now = datetime.now(UTC)
@@ -400,11 +510,9 @@ class SocialMonitorService:
                 acct_freq[p.author_handle] = acct_freq.get(p.author_handle, 0) + 1
         top_accounts = [h for h, _ in sorted(acct_freq.items(), key=lambda x: x[1], reverse=True)[:5]]
 
-        last_scan: datetime | None = None
-        if all_posts:
-            last_scan = max(p.scraped_at for p in all_posts)
+        last_scan: datetime | None = max((p.scraped_at for p in all_posts), default=None)
 
-        # Trending hashtags — aggregate from all posts, weighted by engagement
+        # Trending hashtags (from post hashtag engagement)
         hashtag_engagement: dict[str, int] = {}
         hashtag_posts: dict[str, list[SocialPost]] = {}
         for p in all_posts:
@@ -415,15 +523,22 @@ class SocialMonitorService:
 
         trending = [tag for tag, _ in sorted(hashtag_engagement.items(), key=lambda x: x[1], reverse=True)[:15]]
 
-        # Build top-5 post IDs per hashtag (by engagement)
+        # Hashtag → top-5 post IDs by priority_score
         hashtag_top: dict[str, list[str]] = {}
         for tag in trending:
-            posts_for_tag = sorted(hashtag_posts.get(tag, []), key=lambda p: p.engagement_total, reverse=True)
+            posts_for_tag = sorted(
+                hashtag_posts.get(tag, []),
+                key=lambda p: p.priority_score,
+                reverse=True,
+            )
             hashtag_top[tag] = [p.id for p in posts_for_tag[:5]]
 
-        # Top posts by engagement (global)
+        # Top posts by engagement
         sorted_by_eng = sorted(all_posts, key=lambda p: p.engagement_total, reverse=True)
         top_eng_ids = [p.id for p in sorted_by_eng[:10]]
+
+        # ── Build trend cluster summaries ──
+        active_trends = self._build_trend_clusters(all_posts)
 
         return HateSpeechStats(
             total_scraped=len(all_posts),
@@ -438,7 +553,63 @@ class SocialMonitorService:
             trending_hashtags=trending,
             top_posts_by_engagement=top_eng_ids,
             hashtag_top_posts=hashtag_top,
+            active_trends=active_trends,
         )
+
+    def _build_trend_clusters(self, all_posts: list[SocialPost]) -> list[TrendCluster]:
+        """Group posts by matched_trend and compute risk/engagement stats per cluster."""
+        cluster_posts: dict[str, list[SocialPost]] = {}
+        for p in all_posts:
+            if p.matched_trend:
+                cluster_posts.setdefault(p.matched_trend, []).append(p)
+
+        clusters: list[TrendCluster] = []
+        for trend_name, posts in cluster_posts.items():
+            flagged = [p for p in posts if p.is_flagged]
+            top_posts = sorted(posts, key=lambda p: p.priority_score, reverse=True)[:5]
+            avg_risk = sum(p.hate_score for p in posts) / len(posts) if posts else 0.0
+            max_risk = max((p.hate_score for p in posts), default=0.0)
+            total_eng = sum(p.engagement_total for p in posts)
+
+            # Get trend metadata from the last known trends
+            trend_obj = self._last_trend_map.get(trend_name.lower())
+            trend_rank = trend_obj.trend_rank if trend_obj else 99
+            tweet_volume = trend_obj.tweet_volume if trend_obj else None
+            source = trend_obj.source if trend_obj else "unknown"
+
+            clusters.append(TrendCluster(
+                trend=trend_name,
+                display_name=f"#{trend_name}",
+                tweet_volume=tweet_volume,
+                trend_rank=trend_rank,
+                post_count=len(posts),
+                flagged_count=len(flagged),
+                avg_risk_score=round(avg_risk, 1),
+                max_risk_score=round(max_risk, 1),
+                total_engagement=total_eng,
+                top_post_ids=[p.id for p in top_posts],
+                source=source,
+            ))
+
+        # Sort clusters by: max_risk_score desc, then total_engagement desc
+        clusters.sort(key=lambda c: (c.max_risk_score, c.total_engagement), reverse=True)
+        return clusters[:20]
+
+    def search_posts(self, query: str, limit: int = 10) -> list[SocialPost]:
+        """Search stored posts by hashtag match or content keyword.
+
+        Used as a fallback when the live X guest API is unavailable.
+        Returns real posts collected by the agent, sorted by engagement total.
+        """
+        q = query.lower().lstrip("#").strip()
+        if not q:
+            return []
+        matches = [
+            p for p in self._posts.values()
+            if any(q in tag.lower() for tag in p.hashtags)
+            or q in p.content.lower()
+        ]
+        return sorted(matches, key=lambda p: p.engagement_total, reverse=True)[:limit]
 
     def review_post(self, post_id: str, action: str) -> bool:
         """Mark a post as reviewed. action: 'confirmed' | 'dismissed'."""
@@ -448,6 +619,30 @@ class SocialMonitorService:
         post.reviewed = True
         post.review_action = action
         return True
+
+    def get_agent_status(self) -> dict:
+        """Return the current public discovery agent status as a plain dict."""
+        s = self._agent_status
+        return {
+            "mode": s.mode,
+            "is_running": s.is_running,
+            "scan_count": s.scan_count,
+            "total_posts_discovered": s.total_posts_discovered,
+            "last_scan_at": s.last_scan_at.isoformat() if s.last_scan_at else None,
+            "last_scan_duration_seconds": s.last_scan_duration_seconds,
+            "last_scan_posts_found": s.last_scan_posts_found,
+            "next_scan_at": s.next_scan_at.isoformat() if s.next_scan_at else None,
+            "sources_last_scan": s.sources_last_scan,
+            "queries_used": s.queries_used,
+            "discovery_strategies": s.discovery_strategies,
+            "scan_interval_seconds": s.scan_interval_seconds,
+            "current_posts_in_store": len(self._posts),
+            "description": (
+                "Public Discovery Agent — searches all public X posts using "
+                f"{s.queries_used} keyword queries across Arabic, English, and French. "
+                "Not restricted to specific accounts."
+            ),
+        }
 
 
 social_monitor_service = SocialMonitorService()
