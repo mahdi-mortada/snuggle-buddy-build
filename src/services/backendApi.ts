@@ -1050,3 +1050,21 @@ export async function fetchHateSpeechAgentStatus(): Promise<HateSpeechAgentStatu
     description: data.description,
   };
 }
+
+export async function deleteHateSpeechTrend(
+  trendName: string,
+): Promise<{ trend: string; postsDeleted: number }> {
+  const data = await requestBackend<{ trend: string; posts_deleted: number }>(
+    `/api/v1/hate-speech/trend/${encodeURIComponent(trendName)}`,
+    { method: 'DELETE' },
+  );
+  return { trend: data.trend, postsDeleted: data.posts_deleted };
+}
+
+export async function triggerHateSpeechScan(): Promise<{ scraped: number; analyzed: number; flagged: number }> {
+  const data = await requestBackend<{ scraped: number; analyzed: number; flagged: number }>(
+    '/api/v1/hate-speech/scan',
+    { method: 'POST' },
+  );
+  return data;
+}

@@ -6,7 +6,7 @@ import {
   ShieldAlert, AlertTriangle, RefreshCw, XCircle, Hash, Clock,
   TrendingUp, Zap, ExternalLink, MessageSquare, Heart, Repeat2,
   ChevronDown, ChevronUp, X, Loader2, Flame, BarChart2, ArrowUpRight,
-  Search,
+  Search, Trash2, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -17,6 +17,7 @@ import {
   fetchHateSpeechReplies,
   fetchHateSpeechAgentStatus,
   fetchHateSpeechSearch,
+  deleteHateSpeechTrend,
   type HateSpeechPost,
   type HateSpeechStats,
   type HateSpeechReply,
@@ -414,12 +415,20 @@ function TrendClusterPanel({
   clusters,
   activeTrend,
   onTrendClick,
+  onHideTrend,
+  hiddenCount,
+  onRestoreAll,
+  onDeleteTrend,
 }: {
   clusters: HateSpeechTrendCluster[];
   activeTrend: string | null;
   onTrendClick: (trend: string | null) => void;
+  onHideTrend: (trend: string) => void;
+  hiddenCount: number;
+  onRestoreAll: () => void;
+  onDeleteTrend: (trend: string) => void;
 }) {
-  if (clusters.length === 0) return null;
+  if (clusters.length === 0 && hiddenCount === 0) return null;
   return (
     <div className="glass-panel p-3 space-y-2">
       <div className="flex items-center justify-between">
@@ -428,53 +437,159 @@ function TrendClusterPanel({
           الترندات الرائجة في لبنان
           <span className="text-[10px] text-muted-foreground font-normal">· اضغط للتصفية</span>
         </h3>
-        {activeTrend && (
-          <button
-            onClick={() => onTrendClick(null)}
-            className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
-          >
-            <X className="w-3 h-3" /> إلغاء
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {hiddenCount > 0 && (
+            <button
+              onClick={onRestoreAll}
+              className="text-[10px] text-primary/70 hover:text-primary flex items-center gap-1 transition-colors"
+            >
+              استعادة الكل ({hiddenCount})
+            </button>
+          )}
+          {activeTrend && (
+            <button
+              onClick={() => onTrendClick(null)}
+              className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+            >
+              <X className="w-3 h-3" /> إلغاء
+            </button>
+          )}
+        </div>
       </div>
+      {clusters.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground text-center py-1">
+          كل الترندات مخفية · اضغط "استعادة الكل" لإعادة عرضها
+        </p>
+      ) : (
       <div className="flex flex-wrap gap-1.5" dir="rtl">
         {clusters.map((c) => {
           const cfg = RISK_LEVEL_CONFIG[c.riskLevel];
           const isActive = activeTrend === c.trend;
           return (
-            <button
-              key={c.trend}
-              onClick={() => onTrendClick(isActive ? null : c.trend)}
-              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-xl font-medium transition-all border ${
-                isActive
-                  ? `${cfg.bg} ${cfg.color} ${cfg.border} shadow-md scale-105`
-                  : `bg-secondary/20 text-foreground/80 border-border/30 hover:bg-secondary/40 hover:scale-105`
-              }`}
-            >
-              {/* Risk dot */}
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
-              <Hash className="w-2.5 h-2.5 opacity-60" />
-              <span>{c.trend}</span>
-              <span className={`text-[9px] font-mono-data rounded-full px-1 ${
-                isActive ? 'bg-white/10' : 'bg-border/30 text-muted-foreground'
-              }`}>
-                {c.postCount}
-              </span>
-              {c.flaggedCount > 0 && (
-                <span className="text-[9px] font-mono-data text-red-400">
-                  ⚠{c.flaggedCount}
+            <div key={c.trend} className="group relative">
+              <button
+                onClick={() => onTrendClick(isActive ? null : c.trend)}
+                className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-xl font-medium transition-all border ${
+                  isActive
+                    ? `${cfg.bg} ${cfg.color} ${cfg.border} shadow-md scale-105`
+                    : `bg-secondary/20 text-foreground/80 border-border/30 hover:bg-secondary/40 hover:scale-105`
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
+                <Hash className="w-2.5 h-2.5 opacity-60" />
+                <span>{c.trend}</span>
+                <span className={`text-[9px] font-mono-data rounded-full px-1 ${
+                  isActive ? 'bg-white/10' : 'bg-border/30 text-muted-foreground'
+                }`}>
+                  {c.postCount}
                 </span>
-              )}
-            </button>
+                {c.flaggedCount > 0 && (
+                  <span className="text-[9px] font-mono-data text-red-400">
+                    ⚠{c.flaggedCount}
+                  </span>
+                )}
+              </button>
+              {/* Dismiss × — floats outside top-left corner on hover */}
+              <button
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onHideTrend(c.trend);
+                }}
+                className="absolute -top-2 -left-2 w-4 h-4 rounded-full bg-background border border-border/60 text-muted-foreground hover:text-orange-400 hover:border-orange-500/60 hover:bg-orange-500/10 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center shadow-sm z-10"
+                title="إخفاء مؤقت (يمكن الاستعادة)"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+              {/* Trash — floats outside top-right corner on hover, permanently deletes from backend */}
+              <button
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteTrend(c.trend);
+                }}
+                className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-background border border-border/60 text-muted-foreground hover:text-red-500 hover:border-red-600/60 hover:bg-red-600/10 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center shadow-sm z-10"
+                title="حذف نهائي من الخادم"
+              >
+                <Trash2 className="w-2.5 h-2.5" />
+              </button>
+            </div>
           );
         })}
       </div>
+      )}
       {activeTrend && (
         <p className="text-[10px] text-primary/80 flex items-center gap-1">
           <TrendingUp className="w-3 h-3" />
           منشورات ترند #{activeTrend} · مرتبة حسب الأولوية
         </p>
       )}
+    </div>
+  );
+}
+
+// ── Pagination Bar ────────────────────────────────────────────────────────────
+
+function PaginationBar({
+  currentPage,
+  totalPages,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  // Build the array of page numbers/ellipsis to show
+  // Always show first, last, current ±1. Fill gaps with '…'
+  const pages: (number | '…')[] = [];
+  const addPage = (n: number) => {
+    if (!pages.includes(n)) pages.push(n);
+  };
+
+  addPage(1);
+  if (currentPage > 3) pages.push('…');
+  for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) addPage(i);
+  if (currentPage < totalPages - 2) pages.push('…');
+  if (totalPages > 1) addPage(totalPages);
+
+  return (
+    <div className="flex items-center justify-center gap-1.5 pt-2 pb-1" dir="ltr">
+      {/* Prev */}
+      <button
+        onClick={() => onPageChange(currentPage - 1)}
+        disabled={currentPage === 1}
+        className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-border/40 bg-secondary/20 text-muted-foreground hover:text-foreground hover:bg-secondary/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        <ChevronLeft className="w-3 h-3" /> Prev
+      </button>
+
+      {/* Page pills */}
+      {pages.map((p, i) =>
+        p === '…' ? (
+          <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground select-none">…</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onPageChange(p as number)}
+            className={`min-w-[30px] h-7 px-2 text-xs rounded-lg border transition-colors ${
+              p === currentPage
+                ? 'bg-primary/20 text-primary border-primary/40 font-semibold shadow-sm'
+                : 'border-border/30 bg-secondary/10 text-muted-foreground hover:text-foreground hover:bg-secondary/40'
+            }`}
+          >
+            {p}
+          </button>
+        )
+      )}
+
+      {/* Next */}
+      <button
+        onClick={() => onPageChange(currentPage + 1)}
+        disabled={currentPage === totalPages}
+        className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-border/40 bg-secondary/20 text-muted-foreground hover:text-foreground hover:bg-secondary/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        Next <ChevronRight className="w-3 h-3" />
+      </button>
     </div>
   );
 }
@@ -501,66 +616,147 @@ function AgentStatusPanel({ status }: { status: HateSpeechAgentStatus }) {
     ? secsUntilNext < 60 ? `${secsUntilNext}s` : `${Math.round(secsUntilNext / 60)}m`
     : '—';
 
+  // Progress toward next scan: use actual last→next window when available
+  let progressPct = 0;
+  if (lastScan && nextScan) {
+    const totalMs = nextScan.getTime() - lastScan.getTime();
+    const elapsedMs = Date.now() - lastScan.getTime();
+    progressPct = Math.max(0, Math.min(100, Math.round((elapsedMs / totalMs) * 100)));
+  } else if (secsUntilNext !== null) {
+    const cycleSecs = 300;
+    progressPct = Math.max(0, Math.min(100, Math.round(((cycleSecs - secsUntilNext) / cycleSecs) * 100)));
+  }
+
+  const SOURCE_ICONS: Record<string, string> = {
+    trend_search: '📈',
+    public_keyword_search: '🔍',
+    curated_queries: '📋',
+    authenticated_trend_search: '🔐',
+    guest_api_keyword_scan: '👁',
+    seed_query_search: '🌱',
+  };
+
   return (
-    <div className="glass-panel border border-border/40 p-3 space-y-2.5">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-green-400 animate-pulse' : 'bg-primary/60'}`} />
-          <span className="text-xs font-semibold text-foreground">Public Discovery Agent</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
-            {isActive ? '🔄 Scanning' : '✓ Active'}
-          </span>
-        </div>
-        <span className="text-[10px] text-muted-foreground font-mono-data">{status.scanCount} scans run</span>
-      </div>
+    <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 via-background to-secondary/20">
+      {/* Top accent bar */}
+      <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
 
-      {/* Info */}
-      <div className="text-[10px] text-muted-foreground leading-relaxed">
-        Searches <span className="text-foreground font-medium">all public X posts</span> — not limited to specific accounts.
-        Uses <span className="text-primary font-medium">{status.queriesUsed} Arabic keyword queries</span> covering
-        sectarian hate, anti-refugee, and political incitement in Lebanon.
-      </div>
+      {/* Animated scan line when active */}
+      {isActive && (
+        <div
+          className="absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent"
+          style={{ animation: 'scan-line 2s linear infinite', top: '20%' }}
+        />
+      )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-1.5">
-        <div className="flex flex-col items-center rounded-lg bg-secondary/30 border border-border/30 px-2 py-1.5">
-          <span className="text-sm font-bold font-mono-data text-foreground">{status.lastScanPostsFound}</span>
-          <span className="text-[9px] text-muted-foreground">Last scan</span>
-        </div>
-        <div className="flex flex-col items-center rounded-lg bg-secondary/30 border border-border/30 px-2 py-1.5">
-          <span className="text-sm font-bold font-mono-data text-primary">{nextLabel}</span>
-          <span className="text-[9px] text-muted-foreground">Next scan</span>
-        </div>
-        <div className="flex flex-col items-center rounded-lg bg-secondary/30 border border-border/30 px-2 py-1.5">
-          <span className="text-sm font-bold font-mono-data text-foreground">{status.currentPostsInStore}</span>
-          <span className="text-[9px] text-muted-foreground">Stored posts</span>
-        </div>
-      </div>
+      <div className="p-4 space-y-3">
+        {/* ── Header row ── */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* Agent icon */}
+            <div className={`relative flex items-center justify-center w-8 h-8 rounded-lg shrink-0 ${
+              isActive ? 'bg-green-500/15 border border-green-500/30' : 'bg-primary/10 border border-primary/20'
+            }`}>
+              <Search className={`w-4 h-4 ${isActive ? 'text-green-400' : 'text-primary'}`} />
+              {isActive && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-400 animate-ping" />
+              )}
+              {isActive && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-400" />
+              )}
+            </div>
 
-      {/* Sources */}
-      {status.sourcesLastScan.length > 0 && (
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Last scan sources</span>
-          <div className="flex flex-wrap gap-1">
-            {status.sourcesLastScan.map((s) => (
-              <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 font-medium">
-                ✓ {SOURCE_LABELS[s] ?? s}
-              </span>
-            ))}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-foreground tracking-tight">Public Discovery Agent</span>
+                <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold border ${
+                  isActive
+                    ? 'bg-green-500/15 text-green-400 border-green-500/30'
+                    : 'bg-primary/10 text-primary border-primary/20'
+                }`}>
+                  {isActive ? '⟳ Scanning…' : '✓ Active'}
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+                Searches <span className="text-foreground/80 font-medium">all public X posts</span> ·{' '}
+                <span className="text-primary/80 font-medium">{status.queriesUsed} Arabic keyword queries</span> ·{' '}
+                hate · incitement · Lebanon
+              </p>
+            </div>
+          </div>
+
+          {/* Scan count badge */}
+          <div className="shrink-0 flex flex-col items-end gap-0.5">
+            <span className="text-lg font-bold font-mono-data text-foreground leading-none">{status.scanCount}</span>
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wide">scans</span>
           </div>
         </div>
-      )}
 
-      {lastScan && (
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <Clock className="w-3 h-3" />
-          Last scanned {formatDistanceToNow(lastScan, { addSuffix: true })}
-          {status.lastScanDurationSeconds > 0 && (
-            <span className="ml-auto font-mono-data">{status.lastScanDurationSeconds}s</span>
+        {/* ── Stats grid ── */}
+        <div className="grid grid-cols-3 gap-2">
+          {/* Posts found */}
+          <div className="flex flex-col gap-0.5 rounded-lg bg-secondary/30 border border-border/20 px-3 py-2">
+            <span className="text-base font-bold font-mono-data text-blue-400 leading-none">{status.lastScanPostsFound}</span>
+            <span className="text-[9px] text-muted-foreground">posts · last scan</span>
+          </div>
+
+          {/* Stored posts */}
+          <div className="flex flex-col gap-0.5 rounded-lg bg-secondary/30 border border-border/20 px-3 py-2">
+            <span className="text-base font-bold font-mono-data text-foreground leading-none">{status.currentPostsInStore}</span>
+            <span className="text-[9px] text-muted-foreground">posts stored</span>
+          </div>
+
+          {/* Next scan */}
+          <div className="flex flex-col gap-0.5 rounded-lg bg-primary/5 border border-primary/15 px-3 py-2">
+            <span className="text-base font-bold font-mono-data text-primary leading-none">{nextLabel}</span>
+            <span className="text-[9px] text-muted-foreground">until next scan</span>
+          </div>
+        </div>
+
+        {/* ── Scan progress bar ── */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+            <span className="uppercase tracking-wider">Scan Cycle</span>
+            <span className="font-mono-data">{progressPct}%</span>
+          </div>
+          <div className="h-1 rounded-full bg-secondary/50 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary transition-all duration-1000"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
+
+        {/* ── Sources + last scan time ── */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {/* Sources */}
+          {status.sourcesLastScan.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[9px] text-muted-foreground uppercase tracking-wider shrink-0">Sources:</span>
+              {status.sourcesLastScan.map((s) => (
+                <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-md bg-green-500/10 text-green-400 border border-green-500/20 font-medium flex items-center gap-0.5">
+                  <span>{SOURCE_ICONS[s] ?? '·'}</span>
+                  <span>{SOURCE_LABELS[s] ?? s}</span>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Last scan time */}
+          {lastScan && (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0 mr-auto">
+              <Clock className="w-3 h-3" />
+              <span>{formatDistanceToNow(lastScan, { addSuffix: true })}</span>
+              {status.lastScanDurationSeconds > 0 && (
+                <span className="font-mono-data text-muted-foreground/60">· {status.lastScanDurationSeconds}s</span>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
+
+      {/* Bottom accent bar */}
+      <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
     </div>
   );
 }
@@ -851,8 +1047,11 @@ export default function HateSpeechMonitor() {
   const [sortBy, setSortBy] = useState<HateSpeechSortOption>('priority');
   const [activeHashtag, setActiveHashtag] = useState<string | null>(null);
   const [activeTrend, setActiveTrend] = useState<string | null>(null);
+  const [hiddenTrends, setHiddenTrends] = useState<Set<string>>(new Set());
   const [selectedPost, setSelectedPost] = useState<HateSpeechPost | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const POSTS_PER_PAGE = 15;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -912,6 +1111,29 @@ export default function HateSpeechMonitor() {
     setActiveHashtag(null); // clear hashtag filter when trend selected
   };
 
+  const handleHideTrend = (trend: string) => {
+    setHiddenTrends((prev) => new Set([...prev, trend]));
+    if (activeTrend === trend) setActiveTrend(null);
+  };
+
+  const handleRestoreAllTrends = () => setHiddenTrends(new Set());
+
+  const handleDeleteTrend = async (trend: string) => {
+    // Hide it from the UI immediately so it disappears before the API call completes
+    setHiddenTrends((prev) => new Set([...prev, trend]));
+    if (activeTrend === trend) setActiveTrend(null);
+    try {
+      const result = await deleteHateSpeechTrend(trend);
+      toast.success(`تم حذف ترند #${trend} نهائياً (${result.postsDeleted} منشور محذوف)`);
+      // Reload the page data so the stats + clusters update immediately
+      void load();
+    } catch {
+      toast.error(`فشل حذف ترند #${trend}`);
+      // Undo the hide if the delete failed
+      setHiddenTrends((prev) => { const s = new Set(prev); s.delete(trend); return s; });
+    }
+  };
+
   // Client-side sort (posts already sorted by priority from server, re-sort when user changes)
   const sortedPosts = useMemo(() => {
     const sorted = [...allPosts];
@@ -927,6 +1149,11 @@ export default function HateSpeechMonitor() {
   const visiblePosts = useMemo(() => {
     let posts = langTab === 'all' ? sortedPosts : sortedPosts.filter((p) => p.language === langTab);
 
+    // Hide posts whose trend has been dismissed
+    if (hiddenTrends.size > 0) {
+      posts = posts.filter((p) => !hiddenTrends.has(p.matchedTrend));
+    }
+
     if (activeTrend) {
       posts = posts.filter((p) => p.matchedTrend.toLowerCase() === activeTrend.toLowerCase());
     } else if (activeHashtag) {
@@ -938,7 +1165,14 @@ export default function HateSpeechMonitor() {
     }
 
     return posts;
-  }, [sortedPosts, langTab, flaggedOnly, activeHashtag, activeTrend]);
+  }, [sortedPosts, langTab, flaggedOnly, activeHashtag, activeTrend, hiddenTrends]);
+
+  // Reset to page 1 whenever the visible set changes
+  useEffect(() => { setCurrentPage(1); }, [langTab, flaggedOnly, sortBy, activeHashtag, activeTrend, hiddenTrends]);
+
+  // Pagination derived values
+  const totalPages = Math.max(1, Math.ceil(visiblePosts.length / POSTS_PER_PAGE));
+  const paginatedPosts = visiblePosts.slice((currentPage - 1) * POSTS_PER_PAGE, currentPage * POSTS_PER_PAGE);
 
   const langCounts = useMemo(() => {
     const counts: Record<string, number> = { all: allPosts.length };
@@ -948,7 +1182,7 @@ export default function HateSpeechMonitor() {
 
   const arFlagged = allPosts.filter((p) => p.language === 'ar' && p.hateScore >= 40).length;
   const totalFlagged = hsStats?.totalFlagged ?? 0;
-  const activeTrends = hsStats?.activeTrends ?? [];
+  const activeTrends = (hsStats?.activeTrends ?? []).filter((c) => !hiddenTrends.has(c.trend));
 
   return (
     <>
@@ -1011,6 +1245,10 @@ export default function HateSpeechMonitor() {
             clusters={activeTrends}
             activeTrend={activeTrend}
             onTrendClick={handleTrendSelect}
+            onHideTrend={handleHideTrend}
+            hiddenCount={hiddenTrends.size}
+            onRestoreAll={handleRestoreAllTrends}
+            onDeleteTrend={handleDeleteTrend}
           />
 
           {/* Hashtag search */}
@@ -1096,7 +1334,9 @@ export default function HateSpeechMonitor() {
                     ? `ترند #${activeTrend} · ${visiblePosts.length} منشور`
                     : activeHashtag
                     ? `أعلى 5 · #${activeHashtag}`
-                    : `${visiblePosts.length} منشور`
+                    : visiblePosts.length > 0
+                    ? `${(currentPage - 1) * POSTS_PER_PAGE + 1}–${Math.min(currentPage * POSTS_PER_PAGE, visiblePosts.length)} من ${visiblePosts.length} منشور`
+                    : '0 منشور'
                   }
                 </span>
               </div>
@@ -1119,20 +1359,31 @@ export default function HateSpeechMonitor() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2.5">
-                  {visiblePosts.map((post) => (
-                    <PostCard
-                      key={post.id}
-                      post={post}
-                      activeHashtag={activeHashtag}
-                      activeTrend={activeTrend}
-                      onReview={handleReview}
-                      onOpenReplies={setSelectedPost}
-                      onHashtagClick={handleHashtagSelect}
-                      onTrendClick={handleTrendSelect}
+                <>
+                  <div className="space-y-2.5">
+                    {paginatedPosts.map((post) => (
+                      <PostCard
+                        key={post.id}
+                        post={post}
+                        activeHashtag={activeHashtag}
+                        activeTrend={activeTrend}
+                        onReview={handleReview}
+                        onOpenReplies={setSelectedPost}
+                        onHashtagClick={handleHashtagSelect}
+                        onTrendClick={handleTrendSelect}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Pagination controls */}
+                  {totalPages > 1 && (
+                    <PaginationBar
+                      currentPage={currentPage}
+                      totalPages={totalPages}
+                      onPageChange={setCurrentPage}
                     />
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
 

@@ -129,10 +129,6 @@ class AgentStatus:
     scan_interval_seconds: int = 1800      # matches Celery beat (30 min)
 
 
-# ── Demo posts ─────────────────────────────────────────────────────────────────
-# (handle, lang, content, kw_matches, category, score, hashtags, likes, rts, replies, trend)
-
-
 def _compute_priority(
     hate_score: float,
     engagement_velocity: float,
@@ -292,13 +288,14 @@ class SocialMonitorService:
                 1 for p in self._posts.values() if p.is_flagged
             )}
 
-        # ── Drop posts older than 48 hours (timeline scraping can return stale content) ──
+        # ── Drop posts older than 24 hours (since: filter on X already constrains this,
+        #    but the store prune cutoff and any guest-API results may still include older posts) ──
         now = datetime.now(UTC)
-        max_post_age = timedelta(hours=48)
+        max_post_age = timedelta(hours=24)
         fresh_scraped = [r for r in scraped if (now - r.posted_at) <= max_post_age]
         stale_count = len(scraped) - len(fresh_scraped)
         if stale_count:
-            logger.info("Dropped %d stale posts (>48h old) — keeping %d fresh posts", stale_count, len(fresh_scraped))
+            logger.info("Dropped %d stale posts (>24h old) — keeping %d fresh posts", stale_count, len(fresh_scraped))
         scraped = fresh_scraped
 
         if not scraped:
@@ -389,8 +386,8 @@ class SocialMonitorService:
             if is_flagged:
                 flagged += 1
 
-        # Prune old entries (keep last 72h by posted_at)
-        cutoff = datetime.now(UTC) - timedelta(hours=72)
+        # Prune old entries (keep last 24h by posted_at)
+        cutoff = datetime.now(UTC) - timedelta(hours=24)
         self._posts = {k: v for k, v in self._posts.items() if v.posted_at >= cutoff}
 
         logger.info(
@@ -423,7 +420,8 @@ class SocialMonitorService:
         logger.info("Social monitor background loop started (interval=%ds)", self._scan_interval_seconds)
 
     async def _loop(self) -> None:
-        await asyncio.sleep(30)
+        # Small delay to let other startup tasks finish, then scan immediately
+        await asyncio.sleep(10)
         while True:
             try:
                 await self.run_scan()
@@ -453,13 +451,13 @@ class SocialMonitorService:
         self,
         limit: int = 100,
         hours: int = 24,
-        sort: str = "priority",
+        sort: str = "recent",
     ) -> list[SocialPost]:
-        # Filter by scraped_at (when WE collected it) not posted_at.
-        # Account timeline posts may be 24-48h old but were scraped moments ago,
-        # so filtering by posted_at would hide them. scraped_at is always recent.
+        # Filter by posted_at now that the since: filter on X enforces recency.
+        # All incoming posts are guaranteed to be <24h old by the scrape pipeline,
+        # so filtering by posted_at gives users the freshest tweets first.
         cutoff = datetime.now(UTC) - timedelta(hours=hours)
-        posts = [p for p in self._posts.values() if p.scraped_at >= cutoff]
+        posts = [p for p in self._posts.values() if p.posted_at >= cutoff]
         return self._sort_posts(posts, sort)[:limit]
 
     def list_by_trend(self, trend_name: str, limit: int = 20) -> list[SocialPost]:
@@ -594,6 +592,20 @@ class SocialMonitorService:
         # Sort clusters by: max_risk_score desc, then total_engagement desc
         clusters.sort(key=lambda c: (c.max_risk_score, c.total_engagement), reverse=True)
         return clusters[:20]
+
+    def delete_trend(self, trend_name: str) -> int:
+        """Permanently delete all posts for a trend from the in-memory store.
+
+        Unlike hide (which is client-side only), this removes data from the backend
+        so a page refresh or 'restore all' will NOT bring the trend back.
+        Returns the number of posts deleted.
+        """
+        keys = [k for k, v in self._posts.items()
+                if v.matched_trend.lower() == trend_name.lower()]
+        for k in keys:
+            del self._posts[k]
+        logger.info("Deleted trend '%s' from store: %d posts removed", trend_name, len(keys))
+        return len(keys)
 
     def search_posts(self, query: str, limit: int = 10) -> list[SocialPost]:
         """Search stored posts by hashtag match or content keyword.

@@ -118,3 +118,10 @@
     @apply bg-muted-foreground/20 rounded-full;
   }
 }
+
+@keyframes scan-line {
+  0%   { top: 10%; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: 90%; opacity: 0; }
+}
