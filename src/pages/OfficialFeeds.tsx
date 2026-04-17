@@ -1,6 +1,7 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { OfficialFeedFilterPanel } from '@/components/official-feeds/OfficialFeedFilterPanelV2';
 import { CredibilityBadge, SourceTag } from '@/components/shared/SourceBadge';
+import { Badge } from '@/components/ui/badge';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { openSourceUrl, resolveSourceUrl } from '@/lib/sourceLink';
@@ -23,8 +24,18 @@ import { ExternalLink, Radio, RefreshCw, Send } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
+const FEED_WINDOW_MS = 48 * 60 * 60 * 1000;
+const INITIAL_VISIBLE_COUNT_PER_CHANNEL = 3;
+const VISIBLE_COUNT_STEP = 3;
+
 function platformLabel(platform: OfficialFeedPost['platform']): string {
   return platform === 'telegram' ? 'Telegram' : 'X';
+}
+
+function isWithinLast48Hours(timestamp: string): boolean {
+  const value = new Date(timestamp).getTime();
+  if (!Number.isFinite(value)) return false;
+  return value >= Date.now() - FEED_WINDOW_MS;
 }
 
 export default function OfficialFeeds() {
@@ -39,6 +50,7 @@ export default function OfficialFeeds() {
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedRegionIds, setSelectedRegionIds] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
+  const [visibleCountsByChannel, setVisibleCountsByChannel] = useState<Record<string, number>>({});
   const debouncedKeyword = useDebouncedValue(keywordInput, 250);
 
   const loadFeedData = async (showToast = false) => {
@@ -46,13 +58,16 @@ export default function OfficialFeeds() {
     setError(null);
     try {
       const [nextPosts, nextSources] = await Promise.all([
-        fetchBackendOfficialFeedPosts(24),
+        fetchBackendOfficialFeedPosts(50),
         fetchBackendOfficialFeedSources(),
       ]);
-      setPosts(nextPosts);
+      const recentPosts = nextPosts
+        .filter((post) => isWithinLast48Hours(post.publishedAt))
+        .sort((left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime());
+      setPosts(recentPosts);
       setSources(sortSources(nextSources));
       if (showToast) {
-        toast.success(`Official feeds refreshed: ${nextPosts.length} posts loaded`);
+        toast.success(`Official feeds refreshed: ${recentPosts.length} posts loaded`);
       }
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : 'Unable to load official outlet feeds.';
@@ -101,8 +116,6 @@ export default function OfficialFeeds() {
     };
   }, []);
 
-  // Keep the raw backend payload as the single source of truth and derive
-  // searchable metadata from it instead of duplicating another feed store.
   const preparedPosts = useMemo(() => prepareOfficialFeedPosts(posts, locationIndex), [posts, locationIndex]);
   const regionOptions = useMemo(() => buildRegionOptions(preparedPosts), [preparedPosts]);
   const filteredPosts = useMemo(
@@ -119,6 +132,58 @@ export default function OfficialFeeds() {
   const publishers = Object.keys(groupedPosts).length;
   const telegramCount = posts.filter((post) => post.platform === 'telegram').length;
   const filteredCount = filteredPosts.length;
+
+  useEffect(() => {
+    setVisibleCountsByChannel((currentCounts) => {
+      const nextCounts: Record<string, number> = {};
+
+      for (const [publisherName, publisherPosts] of Object.entries(groupedPosts)) {
+        const firstPost = publisherPosts[0]?.post;
+        const channelKey = firstPost?.sourceId || firstPost?.accountHandle || publisherName;
+        const channelTotal = publisherPosts.length;
+        const collapsedCount = Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, channelTotal);
+        const currentCount = currentCounts[channelKey];
+
+        if (currentCount === undefined) {
+          nextCounts[channelKey] = collapsedCount;
+          continue;
+        }
+
+        nextCounts[channelKey] = Math.min(Math.max(currentCount, collapsedCount), channelTotal);
+      }
+
+      return nextCounts;
+    });
+  }, [groupedPosts]);
+
+  const showMorePostsForChannel = (channelKey: string, totalCount: number) => {
+    setVisibleCountsByChannel((currentCounts) => {
+      const current = currentCounts[channelKey] ?? Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, totalCount);
+      return {
+        ...currentCounts,
+        [channelKey]: Math.min(totalCount, current + VISIBLE_COUNT_STEP),
+      };
+    });
+  };
+
+  const showLessPostsForChannel = (channelKey: string, totalCount: number) => {
+    setVisibleCountsByChannel((currentCounts) => {
+      const collapsedCount = Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, totalCount);
+      const current = currentCounts[channelKey] ?? collapsedCount;
+      return {
+        ...currentCounts,
+        [channelKey]: Math.max(collapsedCount, current - VISIBLE_COUNT_STEP),
+      };
+    });
+  };
+
+  const collapseChannelPosts = (channelKey: string, totalCount: number) => {
+    setVisibleCountsByChannel((currentCounts) => ({
+      ...currentCounts,
+      [channelKey]: Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, totalCount),
+    }));
+  };
+
   const clearFilters = () => {
     setSelectedSources([]);
     setSelectedRegionIds([]);
@@ -247,101 +312,161 @@ export default function OfficialFeeds() {
         ) : null}
 
         <div className="space-y-6">
-          {Object.entries(groupedPosts).map(([publisherName, publisherPosts]) => (
-            <section key={publisherName} className="space-y-3">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-foreground">{publisherName}</h2>
-                <span className="rounded-full bg-secondary/60 px-2 py-1 text-[11px] text-muted-foreground">{publisherPosts.length} posts</span>
-              </div>
+          {Object.entries(groupedPosts).map(([publisherName, publisherPosts]) => {
+            const firstPost = publisherPosts[0]?.post;
+            const channelKey = firstPost?.sourceId || firstPost?.accountHandle || publisherName;
+            const totalInChannel = publisherPosts.length;
+            const collapsedCount = Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, totalInChannel);
+            const currentVisibleCount = visibleCountsByChannel[channelKey] ?? collapsedCount;
+            const visibleChannelPosts = publisherPosts.slice(0, currentVisibleCount);
+            const hasMoreInChannel = currentVisibleCount < totalInChannel;
+            const canShowLessInChannel = currentVisibleCount > collapsedCount;
 
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                {publisherPosts.map((preparedPost) => {
-                  const { post } = preparedPost;
-                  const sourceUrl = resolveSourceUrl(post);
+            return (
+              <section key={publisherName} className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-semibold text-foreground">{publisherName}</h2>
+                  <span className="rounded-full bg-secondary/60 px-2 py-1 text-[11px] text-muted-foreground">{totalInChannel} posts</span>
+                </div>
 
-                  return (
-                    <article key={post.id} className="glass-panel border border-border/50 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <SourceTag source={post.sourceInfo} clickable={false} />
-                            <CredibilityBadge credibility={post.sourceInfo.credibility} score={post.sourceInfo.credibilityScore} />
-                            <span className="rounded-full border border-border/50 bg-secondary/50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                              {platformLabel(post.platform)}
-                            </span>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {visibleChannelPosts.map((preparedPost) => {
+                    const { post, matchedRegions } = preparedPost;
+                    const sourceUrl = resolveSourceUrl(post);
+
+                    return (
+                      <article key={post.id} className="glass-panel border border-border/50 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <SourceTag source={post.sourceInfo} clickable={false} />
+                              <CredibilityBadge credibility={post.sourceInfo.credibility} score={post.sourceInfo.credibilityScore} />
+                              <span className="rounded-full border border-border/50 bg-secondary/50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                {platformLabel(post.platform)}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <a
+                                href={post.accountUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                              >
+                                <Send className="h-3.5 w-3.5" />@{post.accountHandle}
+                              </a>
+                              <span className="text-muted-foreground/40">-</span>
+                              <span>{formatDistanceToNow(new Date(post.publishedAt), { addSuffix: true })}</span>
+                            </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <a
-                              href={post.accountUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+                          {sourceUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => openSourceUrl(sourceUrl)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
                             >
-                              <Send className="h-3.5 w-3.5" />@{post.accountHandle}
-                            </a>
-                            <span className="text-muted-foreground/40">-</span>
-                            <span>{formatDistanceToNow(new Date(post.publishedAt), { addSuffix: true })}</span>
-                          </div>
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              View Source
+                            </button>
+                          ) : null}
                         </div>
-                        {sourceUrl ? (
-                          <button
-                            type="button"
-                            onClick={() => openSourceUrl(sourceUrl)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            View Source
-                          </button>
+
+                        <p className="mt-4 whitespace-pre-line text-sm leading-6 text-foreground/85">
+                          {renderHighlightedText(post.content, debouncedKeyword)}
+                        </p>
+
+                        <LocationSummary post={post} />
+
+                        {matchedRegions.length > 0 ? (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {matchedRegions.slice(0, 4).map((region) => (
+                              <Badge
+                                key={`${post.id}-region-${region.id}`}
+                                variant="outline"
+                                className="border-primary/20 bg-primary/5 text-[11px] text-primary/90"
+                              >
+                                {region.label}
+                              </Badge>
+                            ))}
+                          </div>
                         ) : null}
-                      </div>
 
-                      <p className="mt-4 whitespace-pre-line text-sm leading-6 text-foreground/85">
-                        {renderHighlightedText(post.content, debouncedKeyword)}
-                      </p>
-
-                      <LocationSummary post={post} />
-
-                      {post.primaryKeyword ? (
-                        <div className="mt-4 flex flex-wrap items-center gap-2">
-                          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
-                            Primary match: {post.primaryKeyword}
-                          </span>
-                          <span className="text-[11px] text-muted-foreground">
-                            {post.matchedKeywords?.length ?? 0} configured keyword matches
-                          </span>
-                        </div>
-                      ) : null}
-
-                      {post.matchedKeywords && post.matchedKeywords.length > 0 ? (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {post.matchedKeywords.map((keyword) => (
-                            <span
-                              key={`${post.id}-matched-${keyword}`}
-                              className="rounded-full border border-primary/25 bg-primary/5 px-2 py-1 text-[11px] text-primary/90"
-                            >
-                              match:{keyword}
+                        {post.primaryKeyword ? (
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
+                              Primary match: {post.primaryKeyword}
                             </span>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {post.signalTags.length > 0 ? (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {post.signalTags.map((tag) => (
-                            <span key={`${post.id}-${tag}`} className="rounded-full border border-border/40 bg-accent/40 px-2 py-1 text-[11px] text-muted-foreground">
-                              #{tag}
+                            <span className="text-[11px] text-muted-foreground">
+                              {post.matchedKeywords?.length ?? 0} configured keyword matches
                             </span>
-                          ))}
-                        </div>
-                      ) : null}
+                          </div>
+                        ) : null}
 
-                      <IntelligenceSection post={post} />
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+                        {post.matchedKeywords && post.matchedKeywords.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {post.matchedKeywords.map((keyword) => (
+                              <span
+                                key={`${post.id}-matched-${keyword}`}
+                                className="rounded-full border border-primary/25 bg-primary/5 px-2 py-1 text-[11px] text-primary/90"
+                              >
+                                match:{keyword}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {post.signalTags.length > 0 ? (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {post.signalTags.map((tag) => (
+                              <span key={`${post.id}-${tag}`} className="rounded-full border border-border/40 bg-accent/40 px-2 py-1 text-[11px] text-muted-foreground">
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        <IntelligenceSection post={post} />
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <div className="glass-panel border border-border/50 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {visibleChannelPosts.length} of {totalInChannel} posts.
+                      {!hasMoreInChannel ? ' No more posts to show.' : ''}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => showLessPostsForChannel(channelKey, totalInChannel)}
+                        disabled={!canShowLessInChannel}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Show less
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => collapseChannelPosts(channelKey, totalInChannel)}
+                        disabled={currentVisibleCount <= collapsedCount}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Collapse
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => showMorePostsForChannel(channelKey, totalInChannel)}
+                        disabled={!hasMoreInChannel}
+                        className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Show more
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            );
+          })}
         </div>
       </div>
     </DashboardLayout>
@@ -354,6 +479,16 @@ function severityColor(severity: string | null | undefined): string {
     case 'high':     return 'text-orange-400';
     case 'medium':   return 'text-yellow-400';
     default:         return 'text-slate-400';
+  }
+}
+
+function sentimentColor(sentiment: string): string {
+  switch (sentiment) {
+    case 'panic':       return 'text-red-400';
+    case 'escalation':  return 'text-orange-400';
+    case 'tension':     return 'text-yellow-400';
+    case 'calm':        return 'text-emerald-400';
+    default:            return 'text-slate-400';
   }
 }
 
@@ -377,16 +512,6 @@ function LocationSummary({ post }: { post: OfficialFeedPost }): ReactNode {
       ) : null}
     </div>
   );
-}
-
-function sentimentColor(sentiment: string): string {
-  switch (sentiment) {
-    case 'panic':       return 'text-red-400';
-    case 'escalation':  return 'text-orange-400';
-    case 'tension':     return 'text-yellow-400';
-    case 'calm':        return 'text-emerald-400';
-    default:            return 'text-slate-400';
-  }
 }
 
 function IntelligenceSection({ post }: { post: OfficialFeedPost }): ReactNode {

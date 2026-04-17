@@ -46,7 +46,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T09:43:25Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-8e389e38-9a08-5035-adcc-2aab74685a0c",
@@ -140,7 +140,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T07:13:24Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-b0d5d2c1-bb63-5e84-a008-e04caa93cae6",
@@ -234,7 +234,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T07:12:18Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-fa069142-be41-5868-8f9d-7d5205e68e28",
@@ -328,7 +328,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T07:05:15Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-5cf60362-90a6-5be8-b437-4085017d7b84",
@@ -375,7 +375,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T06:51:00Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-19211dda-4be5-55ac-9327-6b8b6f525bf8",
@@ -422,7 +422,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T06:38:25Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-123c5fbb-89d7-5a87-98c2-afb7da75e88f",
@@ -469,7 +469,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T05:57:46Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-65d4d6b6-e1d8-57ae-b000-7afbfb766529",
@@ -518,7 +518,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T05:38:37Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-02e367d0-e9ee-567f-b5e2-1e63b0b3e0c8",
@@ -565,7 +565,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T05:17:13Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-f166a780-7621-51dc-91de-7b779e38357d",
@@ -614,7 +614,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T04:33:00Z",
-      "updated_at": "2026-04-17T09:44:22.851697Z"
+      "updated_at": "2026-04-17T10:02:22.595512Z"
     },
     {
       "id": "live-63eb0606-0097-55c1-a0a5-f92a09c88b7c",
@@ -856,7 +856,7 @@
   ],
   "risk_scores": [
     {
-      "id": "815a6f60-8b02-4e0c-8e16-53f112298ea5",
+      "id": "f257c0bb-fc41-4208-a64c-12134ff19560",
       "region": "Beirut",
       "overall_score": 56.94,
       "sentiment_component": 43.75,
@@ -867,10 +867,10 @@
       "prediction_horizon": "current",
       "confidence": 0.819,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-17T09:49:18.163832Z"
+      "calculated_at": "2026-04-17T10:05:18.151657Z"
     },
     {
-      "id": "b42df540-c5c6-4a87-8e12-972892dce544",
+      "id": "089bc3c3-b690-47e6-b4e8-8d38d9e984bc",
       "region": "Mount Lebanon",
       "overall_score": 21.19,
       "sentiment_component": 43.75,
@@ -881,10 +881,10 @@
       "prediction_horizon": "current",
       "confidence": 0.524,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-17T09:49:18.163832Z"
+      "calculated_at": "2026-04-17T10:05:18.151657Z"
     },
     {
-      "id": "93ad55c1-c835-43da-9945-f1b19adf34c9",
+      "id": "a3e8a603-8362-40d9-9428-2abbedb93a1f",
       "region": "North Lebanon",
       "overall_score": 15.19,
       "sentiment_component": 43.75,
@@ -895,10 +895,10 @@
       "prediction_horizon": "current",
       "confidence": 0.524,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-17T09:49:18.163832Z"
+      "calculated_at": "2026-04-17T10:05:18.151657Z"
     },
     {
-      "id": "948b573a-0a9b-4e49-9976-055dcff22466",
+      "id": "0f73bd11-0140-46aa-9bef-ff3171b5ad12",
       "region": "South Lebanon",
       "overall_score": 37.94,
       "sentiment_component": 43.75,
@@ -909,13 +909,13 @@
       "prediction_horizon": "current",
       "confidence": 0.574,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-17T09:49:18.163832Z"
+      "calculated_at": "2026-04-17T10:05:18.151657Z"
     }
   ],
   "alerts": [
     {
-      "id": "f1560b93-492a-4e66-9dae-d487c0ca03db",
-      "risk_score_id": "815a6f60-8b02-4e0c-8e16-53f112298ea5",
+      "id": "870c0df3-4463-4be4-9818-820ea3ea458e",
+      "risk_score_id": "f257c0bb-fc41-4208-a64c-12134ff19560",
       "incident_id": "live-b3449e93-b861-5e1e-87cb-7e752502e362",
       "alert_type": "trend",
       "severity": "info",
@@ -936,7 +936,7 @@
         "live-b0d5d2c1-bb63-5e84-a008-e04caa93cae6",
         "live-380472f7-3fc1-5a16-9b4d-4fc5282b2a2b"
       ],
-      "created_at": "2026-04-17T09:49:18.164035Z"
+      "created_at": "2026-04-17T10:05:18.151868Z"
     }
   ],
   "sources": []
