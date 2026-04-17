@@ -11,6 +11,7 @@ type LiveDataContext = {
   stats: DashboardStats;
   lastUpdated: Date;
   connectionStatus?: BackendConnectionStatus;
+  acknowledgeAlert?: (id: string) => void;
 };
 
 export function DashboardLayout({

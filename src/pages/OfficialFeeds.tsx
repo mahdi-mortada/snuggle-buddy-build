@@ -20,7 +20,7 @@ import {
 } from '@/services/backendApi';
 import type { OfficialFeedPost, OfficialFeedSource } from '@/types/crisis';
 import { formatDistanceToNow } from 'date-fns';
-import { ExternalLink, Radio, RefreshCw, Send } from 'lucide-react';
+import { ExternalLink, RefreshCw, Radio, Send } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
@@ -34,12 +34,14 @@ function platformLabel(platform: OfficialFeedPost['platform']): string {
 
 function isWithinLast48Hours(timestamp: string): boolean {
   const value = new Date(timestamp).getTime();
-  if (!Number.isFinite(value)) return false;
+  if (!Number.isFinite(value)) {
+    return false;
+  }
   return value >= Date.now() - FEED_WINDOW_MS;
 }
 
 export default function OfficialFeeds() {
-  const { incidents, alerts, stats, lastUpdated, connectionStatus } = useLiveData(30000);
+  const { incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert } = useLiveData(30000);
   const [posts, setPosts] = useState<OfficialFeedPost[]>([]);
   const [sources, setSources] = useState<OfficialFeedSource[]>([]);
   const [locationIndex, setLocationIndex] = useState<LebanonLocationIndex | null>(null);
@@ -116,6 +118,8 @@ export default function OfficialFeeds() {
     };
   }, []);
 
+  // Keep the raw backend payload as the single source of truth and derive
+  // searchable metadata from it instead of duplicating another feed store.
   const preparedPosts = useMemo(() => prepareOfficialFeedPosts(posts, locationIndex), [posts, locationIndex]);
   const regionOptions = useMemo(() => buildRegionOptions(preparedPosts), [preparedPosts]);
   const filteredPosts = useMemo(
@@ -233,7 +237,7 @@ export default function OfficialFeeds() {
   };
 
   return (
-    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus }}>
+    <DashboardLayout liveData={{ incidents, alerts, stats, lastUpdated, connectionStatus, acknowledgeAlert }}>
       <div className="space-y-6">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div className="space-y-2">
@@ -323,150 +327,149 @@ export default function OfficialFeeds() {
             const canShowLessInChannel = currentVisibleCount > collapsedCount;
 
             return (
-              <section key={publisherName} className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-lg font-semibold text-foreground">{publisherName}</h2>
-                  <span className="rounded-full bg-secondary/60 px-2 py-1 text-[11px] text-muted-foreground">{totalInChannel} posts</span>
-                </div>
+            <section key={publisherName} className="space-y-3">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-foreground">{publisherName}</h2>
+                <span className="rounded-full bg-secondary/60 px-2 py-1 text-[11px] text-muted-foreground">{totalInChannel} posts</span>
+              </div>
 
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  {visibleChannelPosts.map((preparedPost) => {
-                    const { post, matchedRegions } = preparedPost;
-                    const sourceUrl = resolveSourceUrl(post);
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {visibleChannelPosts.map((preparedPost) => {
+                  const { post, matchedRegions } = preparedPost;
+                  const sourceUrl = resolveSourceUrl(post);
 
-                    return (
-                      <article key={post.id} className="glass-panel border border-border/50 p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <SourceTag source={post.sourceInfo} clickable={false} />
-                              <CredibilityBadge credibility={post.sourceInfo.credibility} score={post.sourceInfo.credibilityScore} />
-                              <span className="rounded-full border border-border/50 bg-secondary/50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                                {platformLabel(post.platform)}
-                              </span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                              <a
-                                href={post.accountUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-                              >
-                                <Send className="h-3.5 w-3.5" />@{post.accountHandle}
-                              </a>
-                              <span className="text-muted-foreground/40">-</span>
-                              <span>{formatDistanceToNow(new Date(post.publishedAt), { addSuffix: true })}</span>
-                            </div>
+                  return (
+                    <article key={post.id} className="glass-panel border border-border/50 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <SourceTag source={post.sourceInfo} clickable={false} />
+                            <CredibilityBadge credibility={post.sourceInfo.credibility} score={post.sourceInfo.credibilityScore} />
+                            <span className="rounded-full border border-border/50 bg-secondary/50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                              {platformLabel(post.platform)}
+                            </span>
                           </div>
-                          {sourceUrl ? (
-                            <button
-                              type="button"
-                              onClick={() => openSourceUrl(sourceUrl)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <a
+                              href={post.accountUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
                             >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              View Source
-                            </button>
-                          ) : null}
+                              <Send className="h-3.5 w-3.5" />@{post.accountHandle}
+                            </a>
+                            <span className="text-muted-foreground/40">-</span>
+                            <span>{formatDistanceToNow(new Date(post.publishedAt), { addSuffix: true })}</span>
+                          </div>
                         </div>
-
-                        <p className="mt-4 whitespace-pre-line text-sm leading-6 text-foreground/85">
-                          {renderHighlightedText(post.content, debouncedKeyword)}
-                        </p>
-
-                        <LocationSummary post={post} />
-
-                        {matchedRegions.length > 0 ? (
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {matchedRegions.slice(0, 4).map((region) => (
-                              <Badge
-                                key={`${post.id}-region-${region.id}`}
-                                variant="outline"
-                                className="border-primary/20 bg-primary/5 text-[11px] text-primary/90"
-                              >
-                                {region.label}
-                              </Badge>
-                            ))}
-                          </div>
+                        {sourceUrl ? (
+                          <button
+                            type="button"
+                            onClick={() => openSourceUrl(sourceUrl)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            View Source
+                          </button>
                         ) : null}
+                      </div>
 
-                        {post.primaryKeyword ? (
-                          <div className="mt-4 flex flex-wrap items-center gap-2">
-                            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
-                              Primary match: {post.primaryKeyword}
+                      <p className="mt-4 whitespace-pre-line text-sm leading-6 text-foreground/85">
+                        {renderHighlightedText(post.content, debouncedKeyword)}
+                      </p>
+
+                      <LocationSummary post={post} />
+
+                      {matchedRegions.length > 0 ? (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {matchedRegions.slice(0, 4).map((region) => (
+                            <Badge
+                              key={`${post.id}-region-${region.id}`}
+                              variant="outline"
+                              className="border-primary/20 bg-primary/5 text-[11px] text-primary/90"
+                            >
+                              {region.label}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {post.primaryKeyword ? (
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
+                            Primary match: {post.primaryKeyword}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {post.matchedKeywords?.length ?? 0} configured keyword matches
+                          </span>
+                        </div>
+                      ) : null}
+
+                      {post.matchedKeywords && post.matchedKeywords.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {post.matchedKeywords.map((keyword) => (
+                            <span
+                              key={`${post.id}-matched-${keyword}`}
+                              className="rounded-full border border-primary/25 bg-primary/5 px-2 py-1 text-[11px] text-primary/90"
+                            >
+                              match:{keyword}
                             </span>
-                            <span className="text-[11px] text-muted-foreground">
-                              {post.matchedKeywords?.length ?? 0} configured keyword matches
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {post.signalTags.length > 0 ? (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {post.signalTags.map((tag) => (
+                            <span key={`${post.id}-${tag}`} className="rounded-full border border-border/40 bg-accent/40 px-2 py-1 text-[11px] text-muted-foreground">
+                              #{tag}
                             </span>
-                          </div>
-                        ) : null}
+                          ))}
+                        </div>
+                      ) : null}
 
-                        {post.matchedKeywords && post.matchedKeywords.length > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {post.matchedKeywords.map((keyword) => (
-                              <span
-                                key={`${post.id}-matched-${keyword}`}
-                                className="rounded-full border border-primary/25 bg-primary/5 px-2 py-1 text-[11px] text-primary/90"
-                              >
-                                match:{keyword}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {post.signalTags.length > 0 ? (
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {post.signalTags.map((tag) => (
-                              <span key={`${post.id}-${tag}`} className="rounded-full border border-border/40 bg-accent/40 px-2 py-1 text-[11px] text-muted-foreground">
-                                #{tag}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        <IntelligenceSection post={post} />
-                      </article>
-                    );
-                  })}
-                </div>
-
-                <div className="glass-panel border border-border/50 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {visibleChannelPosts.length} of {totalInChannel} posts.
-                      {!hasMoreInChannel ? ' No more posts to show.' : ''}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => showLessPostsForChannel(channelKey, totalInChannel)}
-                        disabled={!canShowLessInChannel}
-                        className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Show less
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => collapseChannelPosts(channelKey, totalInChannel)}
-                        disabled={currentVisibleCount <= collapsedCount}
-                        className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Collapse
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => showMorePostsForChannel(channelKey, totalInChannel)}
-                        disabled={!hasMoreInChannel}
-                        className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Show more
-                      </button>
-                    </div>
+                      <IntelligenceSection post={post} />
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="glass-panel border border-border/50 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {visibleChannelPosts.length} of {totalInChannel} posts.
+                    {!hasMoreInChannel ? ' No more posts to show.' : ''}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => showLessPostsForChannel(channelKey, totalInChannel)}
+                      disabled={!canShowLessInChannel}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Show less
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => collapseChannelPosts(channelKey, totalInChannel)}
+                      disabled={currentVisibleCount <= collapsedCount}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Collapse
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => showMorePostsForChannel(channelKey, totalInChannel)}
+                      disabled={!hasMoreInChannel}
+                      className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Show more
+                    </button>
                   </div>
                 </div>
-              </section>
-            );
-          })}
+              </div>
+            </section>
+          );
+        })}
         </div>
       </div>
     </DashboardLayout>

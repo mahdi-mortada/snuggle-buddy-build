@@ -2,6 +2,100 @@
   "users": [],
   "incidents": [
     {
+      "id": "live-7922b48b-34ec-5b81-ab0b-1d502151baab",
+      "source": "news",
+      "source_id": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxPWll4dnUwTzFPV0lLbXg2UFBLM3B4QWc5eGJDWWFXdER6Q2s5REMtTmZrMkdSQWlxYWpsQUw3eVltSmg1Z0RYb3NGWXYyQlZua2tESUZPd05iVmFRVFdUbTBuU1ZzYTlJYWpyMzVmVjFVZC1mM3g4NTNabGRDekNMdkZnVlJVejJZZU56OGxVcDdEUHd3aTlQYW1Rcmsxb2taUVg5TGNlT3dLZzg?oc=5",
+      "source_url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxPWll4dnUwTzFPV0lLbXg2UFBLM3B4QWc5eGJDWWFXdER6Q2s5REMtTmZrMkdSQWlxYWpsQUw3eVltSmg1Z0RYb3NGWXYyQlZua2tESUZPd05iVmFRVFdUbTBuU1ZzYTlJYWpyMzVmVjFVZC1mM3g4NTNabGRDekNMdkZnVlJVejJZZU56OGxVcDdEUHd3aTlQYW1Rcmsxb2taUVg5TGNlT3dLZzg?oc=5",
+      "title": "Fragile calm in Lebanon as truce holds and families head home",
+      "description": "Print: Fragile calm in Lebanon as truce holds and families head home Naharnet",
+      "raw_text": "Fragile calm in Lebanon as truce holds and families head home. Print: Fragile calm in Lebanon as truce holds and families head home Naharnet",
+      "processed_text": null,
+      "category": "other",
+      "severity": "medium",
+      "location": {
+        "lat": 33.8938,
+        "lng": 35.5018
+      },
+      "location_name": "Lebanon",
+      "region": "Beirut",
+      "country": "Lebanon",
+      "sentiment_score": -0.25,
+      "risk_score": 58.0,
+      "entities": [
+        "Lebanon",
+        "Beirut"
+      ],
+      "keywords": [],
+      "language": "en",
+      "is_verified": false,
+      "status": "new",
+      "processing_status": "pending",
+      "verification_status": "unverified",
+      "confidence_score": null,
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "analyst_notes": null,
+      "metadata": {},
+      "source_info": {
+        "name": "Naharnet",
+        "type": "newspaper",
+        "credibility": "high",
+        "credibility_score": 80.0,
+        "logo_initials": "NH",
+        "url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxPWll4dnUwTzFPV0lLbXg2UFBLM3B4QWc5eGJDWWFXdER6Q2s5REMtTmZrMkdSQWlxYWpsQUw3eVltSmg1Z0RYb3NGWXYyQlZua2tESUZPd05iVmFRVFdUbTBuU1ZzYTlJYWpyMzVmVjFVZC1mM3g4NTNabGRDekNMdkZnVlJVejJZZU56OGxVcDdEUHd3aTlQYW1Rcmsxb2taUVg5TGNlT3dLZzg?oc=5",
+        "verified_by": []
+      },
+      "created_at": "2026-04-17T10:06:12Z",
+      "updated_at": "2026-04-17T10:20:22.929896Z"
+    },
+    {
+      "id": "live-a5a21b08-b56d-5358-8ea1-57504e2e9748",
+      "source": "news",
+      "source_id": "https://news.google.com/rss/articles/CBMirAFBVV95cUxQUU5SNlE4VG5XTDQ0cU9Ga2xGb1FtUk50M3BTWHZROXo5anJLYmJ3YVFyLWR3UnpJRDdNT1R3cmxmVXNSeDJWblBDMUZpUzV4NDYzVUlIMWNUOVIzVTVsRW4xazBzaFQydEF6Y09lX1V1Vy1BNGNpeUMydUxJUUlPc1BXNlAtb1EwdlNCcFJnUzBlaklRU3pId3FSdVNDM0RmUnE5dzZsS0lfOWE3?oc=5",
+      "source_url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxQUU5SNlE4VG5XTDQ0cU9Ga2xGb1FtUk50M3BTWHZROXo5anJLYmJ3YVFyLWR3UnpJRDdNT1R3cmxmVXNSeDJWblBDMUZpUzV4NDYzVUlIMWNUOVIzVTVsRW4xazBzaFQydEF6Y09lX1V1Vy1BNGNpeUMydUxJUUlPc1BXNlAtb1EwdlNCcFJnUzBlaklRU3pId3FSdVNDM0RmUnE5dzZsS0lfOWE3?oc=5",
+      "title": "Lebanon-Israel ceasefire, Trump\u2019s economy pitch and Allbirds\u2019 AI pivot",
+      "description": "Lebanon-Israel ceasefire, Trump\u2019s economy pitch and Allbirds\u2019 AI pivot Reuters",
+      "raw_text": "Lebanon-Israel ceasefire, Trump\u2019s economy pitch and Allbirds\u2019 AI pivot. Lebanon-Israel ceasefire, Trump\u2019s economy pitch and Allbirds\u2019 AI pivot Reuters",
+      "processed_text": null,
+      "category": "other",
+      "severity": "medium",
+      "location": {
+        "lat": 33.8938,
+        "lng": 35.5018
+      },
+      "location_name": "Lebanon",
+      "region": "Beirut",
+      "country": "Lebanon",
+      "sentiment_score": -0.25,
+      "risk_score": 58.0,
+      "entities": [
+        "Lebanon",
+        "Beirut"
+      ],
+      "keywords": [],
+      "language": "en",
+      "is_verified": false,
+      "status": "new",
+      "processing_status": "pending",
+      "verification_status": "unverified",
+      "confidence_score": null,
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "analyst_notes": null,
+      "metadata": {},
+      "source_info": {
+        "name": "Reuters",
+        "type": "news_agency",
+        "credibility": "verified",
+        "credibility_score": 95.0,
+        "logo_initials": "RT",
+        "url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxQUU5SNlE4VG5XTDQ0cU9Ga2xGb1FtUk50M3BTWHZROXo5anJLYmJ3YVFyLWR3UnpJRDdNT1R3cmxmVXNSeDJWblBDMUZpUzV4NDYzVUlIMWNUOVIzVTVsRW4xazBzaFQydEF6Y09lX1V1Vy1BNGNpeUMydUxJUUlPc1BXNlAtb1EwdlNCcFJnUzBlaklRU3pId3FSdVNDM0RmUnE5dzZsS0lfOWE3?oc=5",
+        "verified_by": []
+      },
+      "created_at": "2026-04-17T10:05:51Z",
+      "updated_at": "2026-04-17T10:20:22.929896Z"
+    },
+    {
       "id": "live-b3449e93-b861-5e1e-87cb-7e752502e362",
       "source": "news",
       "source_id": "https://news.google.com/rss/articles/CBMikAFBVV95cUxORXZwUkVKSS1lanZRUEFRY1phZDdLRDlpT2lKcDluM01OYVhpRU0yWDI5cGhTeEZTMmVZY2hnXy1sbU1LUFA3aDdBRm1ONlU0cUxuSnN0U1VTTXBXWkxubHM4cTNoUTZJTkZLTHFMOGFrZS1wdGhubGtnMXFMSmhadGlXZXhOS2NsX29Dd0ZsMWk?oc=5",
@@ -46,7 +140,54 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T09:43:25Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:20:22.929896Z"
+    },
+    {
+      "id": "live-862fbf7c-3e43-57da-963d-f2584f381440",
+      "source": "news",
+      "source_id": "https://news.google.com/rss/articles/CBMi8gFBVV95cUxPSG8tVENKMnF2U0psZ3B4Y1dZQm90eS1KQ2ZaSnpUd3k1RnZKczhCNDZHUTNMRWtQQXk2Y3A3ejZTTndkMFg3Zk5IOUxIbWl4TVlOTE0tSENCZnRsN1EzTnlyckpMSktsQzBzR1hqcnhiR3FoOHJHX3RPcTVJNEV5VzRVdWF5V2hsVVkzTDNzSEp1dy1OMFJlRDhURVdlbWdrZGgyWDE5Nm5IWnh4UktheXBKS3J5UXR6V0R6c1FLczFUVXFYbW02X3UxRHZvc0xaYk5EbFBxcWN5YzQzQ21IMEZCeENDajd5NnhFYTdBcTFPZw?oc=5",
+      "source_url": "https://news.google.com/rss/articles/CBMi8gFBVV95cUxPSG8tVENKMnF2U0psZ3B4Y1dZQm90eS1KQ2ZaSnpUd3k1RnZKczhCNDZHUTNMRWtQQXk2Y3A3ejZTTndkMFg3Zk5IOUxIbWl4TVlOTE0tSENCZnRsN1EzTnlyckpMSktsQzBzR1hqcnhiR3FoOHJHX3RPcTVJNEV5VzRVdWF5V2hsVVkzTDNzSEp1dy1OMFJlRDhURVdlbWdrZGgyWDE5Nm5IWnh4UktheXBKS3J5UXR6V0R6c1FLczFUVXFYbW02X3UxRHZvc0xaYk5EbFBxcWN5YzQzQ21IMEZCeENDajd5NnhFYTdBcTFPZw?oc=5",
+      "title": "Cease-fire in Lebanon, negotiations with Israel... Ask your questions to our co-editor-in-chief Anthony Samrani",
+      "description": "Cease-fire in Lebanon, negotiations with Israel... Ask your questions to our co-editor-in-chief Anthony Samrani L'Orient Today",
+      "raw_text": "Cease-fire in Lebanon, negotiations with Israel... Ask your questions to our co-editor-in-chief Anthony Samrani. Cease-fire in Lebanon, negotiations with Israel... Ask your questions to our co-editor-in-chief Anthony Samrani L'Orient Today",
+      "processed_text": null,
+      "category": "other",
+      "severity": "medium",
+      "location": {
+        "lat": 33.8938,
+        "lng": 35.5018
+      },
+      "location_name": "Lebanon",
+      "region": "Beirut",
+      "country": "Lebanon",
+      "sentiment_score": -0.25,
+      "risk_score": 58.0,
+      "entities": [
+        "Lebanon",
+        "Beirut"
+      ],
+      "keywords": [],
+      "language": "en",
+      "is_verified": false,
+      "status": "new",
+      "processing_status": "pending",
+      "verification_status": "unverified",
+      "confidence_score": null,
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "analyst_notes": null,
+      "metadata": {},
+      "source_info": {
+        "name": "L'Orient Today",
+        "type": "newspaper",
+        "credibility": "verified",
+        "credibility_score": 90.0,
+        "logo_initials": "LO",
+        "url": "https://news.google.com/rss/articles/CBMi8gFBVV95cUxPSG8tVENKMnF2U0psZ3B4Y1dZQm90eS1KQ2ZaSnpUd3k1RnZKczhCNDZHUTNMRWtQQXk2Y3A3ejZTTndkMFg3Zk5IOUxIbWl4TVlOTE0tSENCZnRsN1EzTnlyckpMSktsQzBzR1hqcnhiR3FoOHJHX3RPcTVJNEV5VzRVdWF5V2hsVVkzTDNzSEp1dy1OMFJlRDhURVdlbWdrZGgyWDE5Nm5IWnh4UktheXBKS3J5UXR6V0R6c1FLczFUVXFYbW02X3UxRHZvc0xaYk5EbFBxcWN5YzQzQ21IMEZCeENDajd5NnhFYTdBcTFPZw?oc=5",
+        "verified_by": []
+      },
+      "created_at": "2026-04-17T09:33:03Z",
+      "updated_at": "2026-04-17T10:20:22.929896Z"
     },
     {
       "id": "live-8e389e38-9a08-5035-adcc-2aab74685a0c",
@@ -140,7 +281,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T07:13:24Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:20:22.929896Z"
     },
     {
       "id": "live-b0d5d2c1-bb63-5e84-a008-e04caa93cae6",
@@ -234,7 +375,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T07:12:18Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:20:22.929896Z"
     },
     {
       "id": "live-fa069142-be41-5868-8f9d-7d5205e68e28",
@@ -328,7 +469,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T07:05:15Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:20:22.929896Z"
     },
     {
       "id": "live-5cf60362-90a6-5be8-b437-4085017d7b84",
@@ -375,7 +516,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T06:51:00Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:20:22.929896Z"
     },
     {
       "id": "live-19211dda-4be5-55ac-9327-6b8b6f525bf8",
@@ -422,7 +563,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T06:38:25Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:20:22.929896Z"
     },
     {
       "id": "live-123c5fbb-89d7-5a87-98c2-afb7da75e88f",
@@ -469,7 +610,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T05:57:46Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:20:22.929896Z"
     },
     {
       "id": "live-65d4d6b6-e1d8-57ae-b000-7afbfb766529",
@@ -518,7 +659,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T05:38:37Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:14:22.752309Z"
     },
     {
       "id": "live-02e367d0-e9ee-567f-b5e2-1e63b0b3e0c8",
@@ -565,7 +706,7 @@
         "verified_by": []
       },
       "created_at": "2026-04-17T05:17:13Z",
-      "updated_at": "2026-04-17T10:02:22.595512Z"
+      "updated_at": "2026-04-17T10:08:24.561420Z"
     },
     {
       "id": "live-f166a780-7621-51dc-91de-7b779e38357d",
@@ -856,21 +997,21 @@
   ],
   "risk_scores": [
     {
-      "id": "f257c0bb-fc41-4208-a64c-12134ff19560",
+      "id": "dcfa91de-d3c5-4a06-b75d-c0b2124019c9",
       "region": "Beirut",
-      "overall_score": 56.94,
+      "overall_score": 59.94,
       "sentiment_component": 43.75,
       "volume_component": 100.0,
       "keyword_component": 30.0,
-      "behavior_component": 0.0,
+      "behavior_component": 20.0,
       "geospatial_component": 100.0,
       "prediction_horizon": "current",
-      "confidence": 0.819,
+      "confidence": 0.892,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-17T10:05:18.151657Z"
+      "calculated_at": "2026-04-17T10:21:19.145696Z"
     },
     {
-      "id": "089bc3c3-b690-47e6-b4e8-8d38d9e984bc",
+      "id": "6d25a824-b080-48ed-9194-784f3fe09bdc",
       "region": "Mount Lebanon",
       "overall_score": 21.19,
       "sentiment_component": 43.75,
@@ -881,10 +1022,10 @@
       "prediction_horizon": "current",
       "confidence": 0.524,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-17T10:05:18.151657Z"
+      "calculated_at": "2026-04-17T10:21:19.145696Z"
     },
     {
-      "id": "a3e8a603-8362-40d9-9428-2abbedb93a1f",
+      "id": "3c4b1ffb-2a68-4fa5-a057-f6235a0f0748",
       "region": "North Lebanon",
       "overall_score": 15.19,
       "sentiment_component": 43.75,
@@ -895,10 +1036,10 @@
       "prediction_horizon": "current",
       "confidence": 0.524,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-17T10:05:18.151657Z"
+      "calculated_at": "2026-04-17T10:21:19.145696Z"
     },
     {
-      "id": "0f73bd11-0140-46aa-9bef-ff3171b5ad12",
+      "id": "b3d66e65-b640-410e-943b-2a01f745a95e",
       "region": "South Lebanon",
       "overall_score": 37.94,
       "sentiment_component": 43.75,
@@ -909,18 +1050,18 @@
       "prediction_horizon": "current",
       "confidence": 0.574,
       "model_version": "risk-scoring-v1.0",
-      "calculated_at": "2026-04-17T10:05:18.151657Z"
+      "calculated_at": "2026-04-17T10:21:19.145696Z"
     }
   ],
   "alerts": [
     {
-      "id": "870c0df3-4463-4be4-9818-820ea3ea458e",
-      "risk_score_id": "f257c0bb-fc41-4208-a64c-12134ff19560",
-      "incident_id": "live-b3449e93-b861-5e1e-87cb-7e752502e362",
+      "id": "ec89dc42-098b-4908-a98f-6608f8ace687",
+      "risk_score_id": "dcfa91de-d3c5-4a06-b75d-c0b2124019c9",
+      "incident_id": "live-7922b48b-34ec-5b81-ab0b-1d502151baab",
       "alert_type": "trend",
       "severity": "info",
       "title": "Beirut: INFO Risk Level",
-      "message": "Risk score in Beirut has reached 56.9/100. Recent: Lebanon; Lebanon; Displaced Lebanese return to scenes of destruction",
+      "message": "Risk score in Beirut has reached 59.9/100. Recent: Fragile calm in Lebanon as truce holds and families head home; Lebanon-Israel ceasefire, Trump\u2019s economy pitch and Allbirds\u2019 AI pivot; Lebanon",
       "recommendation": "Low-level activity detected in Beirut. Continue standard monitoring protocols.",
       "region": "Beirut",
       "is_acknowledged": false,
@@ -930,13 +1071,13 @@
         "dashboard"
       ],
       "linked_incidents": [
+        "live-7922b48b-34ec-5b81-ab0b-1d502151baab",
+        "live-a5a21b08-b56d-5358-8ea1-57504e2e9748",
         "live-b3449e93-b861-5e1e-87cb-7e752502e362",
-        "live-8e389e38-9a08-5035-adcc-2aab74685a0c",
-        "live-a2b99353-8556-57f9-8e7a-eeb55f356699",
-        "live-b0d5d2c1-bb63-5e84-a008-e04caa93cae6",
-        "live-380472f7-3fc1-5a16-9b4d-4fc5282b2a2b"
+        "live-862fbf7c-3e43-57da-963d-f2584f381440",
+        "live-8e389e38-9a08-5035-adcc-2aab74685a0c"
       ],
-      "created_at": "2026-04-17T10:05:18.151868Z"
+      "created_at": "2026-04-17T10:21:19.145927Z"
     }
   ],
   "sources": []
