@@ -383,8 +383,12 @@ async def search_hashtag_live(
             trend_rank=1,
             source="user_search",
         )
+        # product="Top" — required for non-phone-verified accounts ("Latest" returns 404).
+        # since_hours=48: X since:YYYY-MM-DD filter keeps only the last 2 days so old
+        # viral tweets can't surface. We then re-sort by posted_at for recency.
         raw_posts = await x_scraper_service._twscrape.search_hashtag_top(
-            synthetic_trend, limit=min(limit * 3, 40)
+            synthetic_trend, limit=min(limit * 3, 40),
+            product="Top", since_hours=48,
         )
         if raw_posts:
             logger.info("Hashtag search #%s — SearchTimeline → %d posts", query_clean, len(raw_posts))
@@ -395,8 +399,9 @@ async def search_hashtag_live(
             if raw_posts:
                 logger.info("Hashtag search #%s — guest API → %d posts", query_clean, len(raw_posts))
 
-        # Sort by total engagement and trim to requested limit
-        raw_posts.sort(key=lambda p: p.engagement_total, reverse=True)
+        # Sort by posted_at (most recent first) — we use product="Latest" so
+        # recency is the primary signal; trim to requested limit.
+        raw_posts.sort(key=lambda p: p.posted_at, reverse=True)
         raw_posts = raw_posts[:limit]
 
         if not raw_posts:
@@ -464,6 +469,22 @@ async def get_agent_status(
     """Return public discovery agent status — mode, last scan, next scan, strategies used."""
     data = social_monitor_service.get_agent_status()
     return ApiResponse(data=AgentStatusOut(**data))
+
+
+@router.delete("/trend/{trend_name}", response_model=ApiResponse[dict])
+async def delete_trend(
+    trend_name: str,
+    _user: UserRecord = Depends(get_current_user),
+) -> ApiResponse[dict]:
+    """Permanently delete all posts for a trend from the backend store.
+
+    Unlike the client-side hide (which is reversed by 'Restore All'),
+    this removes posts from memory — they will NOT reappear on refresh.
+    The trend will be re-discovered on the next background scan if it is
+    still trending on X at that time.
+    """
+    deleted = social_monitor_service.delete_trend(trend_name)
+    return ApiResponse(data={"trend": trend_name, "posts_deleted": deleted})
 
 
 @router.post("/analyze", response_model=ApiResponse[AnalyzeResponse])

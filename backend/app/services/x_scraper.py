@@ -32,12 +32,47 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
+def _restore_accounts_db_from_env() -> None:
+    """If TWSCRAPE_DB_B64 is set in the environment and the DB file doesn't exist,
+    decode it and write it to disk so authenticated scraping works on any machine.
+
+    Run once at module import time — safe to call multiple times (no-op if file exists).
+    """
+    import base64
+
+    b64 = os.environ.get("TWSCRAPE_DB_B64", "").strip()
+    if not b64:
+        return
+
+    target_paths = [
+        "/app/twscrape_accounts.db",
+        os.path.join(os.path.dirname(__file__), "../../../twscrape_accounts.db"),
+    ]
+    # Use the first path that already exists, or the first writable target
+    dest = next((p for p in target_paths if os.path.exists(p)), target_paths[0])
+    if os.path.exists(dest):
+        return  # already present — don't overwrite active session
+
+    try:
+        data = base64.b64decode(b64)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as fh:
+            fh.write(data)
+        logger.info("Restored twscrape_accounts.db from TWSCRAPE_DB_B64 (%d bytes → %s)", len(data), dest)
+    except Exception as exc:
+        logger.warning("Failed to restore twscrape_accounts.db from env: %s", exc)
+
+
+_restore_accounts_db_from_env()
+
+
 # ── Lebanon WOEIDs ─────────────────────────────────────────────────────────────
 LEBANON_WOEID = 23424873   # Lebanon country
 BEIRUT_WOEID  = 2316588    # Beirut city
 
 # ── Minimum engagement to keep a tweet ────────────────────────────────────────
-MIN_ENGAGEMENT = 3
+MIN_ENGAGEMENT = 50
 
 # ── Curated Lebanese hashtag pool — tiered by expected relevance ──────────────
 # These are used as fallback when the X trends API is unavailable.
@@ -639,11 +674,14 @@ class TwscrapeScraper:
         self,
         trend: TrendTopic,
         limit: int = 20,
+        product: str = "Top",
+        since_hours: int | None = 24,
     ) -> list[ScrapedPost]:
-        """Search for top-engagement tweets for a given trend using SearchTimeline GraphQL.
+        """Search for tweets for a given trend using SearchTimeline GraphQL.
 
-        Uses product='Top' which returns most-interacted tweets (works better than
-        'Latest' for non-phone-verified accounts in many cases).
+        product: "Top" (most-interacted) or "Latest" (chronological, most recent first).
+        since_hours: when set, adds a since:YYYY-MM-DD filter so only recent tweets
+          are returned even when product="Top". Prevents old viral tweets dominating.
 
         Each returned ScrapedPost has matched_trend set to trend.name.
         """
@@ -674,15 +712,19 @@ class TwscrapeScraper:
         if gen:
             headers["x-client-transaction-id"] = gen.calc("GET", st_path)  # type: ignore[attr-defined]
 
-        # Build query: Arabic hashtag, prefer Top (most-interacted) results
+        # Build query with optional since: date filter to enforce recency
         tag_name = trend.name.lstrip("#")
         query = f"#{tag_name} lang:ar"
+        if since_hours is not None:
+            from datetime import date, timedelta as _td
+            since_date = (datetime.now(UTC) - _td(hours=since_hours)).date()
+            query += f" since:{since_date.strftime('%Y-%m-%d')}"
 
         variables = {
             "rawQuery": query,
             "count": min(limit, 20),
             "querySource": "hashtag_click",
-            "product": "Top",
+            "product": product,
         }
 
         try:
@@ -1051,7 +1093,11 @@ class XScraperService:
         search_worked = False
 
         for trend in trends:
-            posts = await self._twscrape.search_hashtag_top(trend, limit=tweets_per_trend)
+            # since_hours=24: only collect tweets posted in the last 24h so the
+            # main feed never shows old viral tweets as "current" content.
+            posts = await self._twscrape.search_hashtag_top(
+                trend, limit=tweets_per_trend, product="Top", since_hours=24
+            )
             if posts:
                 search_worked = True
                 all_posts.extend(posts)
@@ -1199,6 +1245,8 @@ class XScraperService:
             posts = await self._twscrape.search_hashtag_top(
                 TrendTopic(name=query, display_name=query, tweet_volume=None, trend_rank=99, source="keyword"),
                 limit=limit_per_query,
+                product="Top",
+                since_hours=24,
             )
             if not posts:
                 posts = await self._guest.search(query, limit=limit_per_query)

@@ -131,6 +131,11 @@ class Settings(BaseSettings):
     telegram_session_string: str = ""
     telegram_request_timeout_seconds: int = 15
 
+    # ── X / twscrape accounts ─────────────────────────────────────────────────
+    # Base64-encoded twscrape_accounts.db so teammates don't need the file.
+    # Generate with: python backend/scripts/export_accounts_db.py
+    twscrape_db_b64: str = ""
+
     # ── Server ───────────────────────────────────────────────────────────────
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000

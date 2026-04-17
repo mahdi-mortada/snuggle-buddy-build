@@ -1,10 +1,13 @@
 import { formatDistanceToNow } from 'date-fns';
+import { useState } from 'react';
 import { CredibilityBadge, SourceTag } from '@/components/shared/SourceBadge';
-import { Eye, Share2, Flag, ExternalLink, Radio, RefreshCw } from 'lucide-react';
+import { Eye, Share2, Flag, ExternalLink, Radio, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Incident, OfficialFeedPost } from '@/types/crisis';
 import { Skeleton } from '@/components/ui/skeleton';
 import { openSourceUrl, resolveSourceUrl } from '@/lib/sourceLink';
+
+const PAGE_SIZE = 8;
 
 const severityStyles: Record<string, string> = {
   low: 'bg-success/15 text-success border-success/30',
@@ -61,8 +64,17 @@ function formatRelativeFromTimestamp(timestamp: number): string {
 }
 
 export function LiveIncidentFeed({ items, isLoading = false, error = null, onRetry }: LiveIncidentFeedProps) {
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  const visibleItems = items.slice(0, visibleCount);
+  const remaining = items.length - visibleCount;
+  const hasMore = remaining > 0;
+
+  const loadMore = () => setVisibleCount((n) => n + PAGE_SIZE);
+  const collapse = () => setVisibleCount(PAGE_SIZE);
+
   return (
-    <div className="glass-panel h-full flex flex-col">
+    <div className="glass-panel flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
         <h3 className="text-sm font-semibold text-foreground">Live Incident Feed</h3>
         <div className="flex items-center gap-3">
@@ -93,7 +105,7 @@ export function LiveIncidentFeed({ items, isLoading = false, error = null, onRet
         </div>
       ) : null}
 
-      <div className="flex-1 overflow-auto scrollbar-thin divide-y divide-border/30">
+      <div className="divide-y divide-border/30">
         {isLoading && items.length === 0 ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 4 }).map((_, index) => (
@@ -109,7 +121,7 @@ export function LiveIncidentFeed({ items, isLoading = false, error = null, onRet
           <div className="p-4 text-xs text-muted-foreground">No live incidents or Telegram updates yet.</div>
         ) : null}
 
-        {items.map((item, i) => {
+        {visibleItems.map((item, i) => {
           if (item.type === 'telegram') {
             const feed = item.telegram;
             const sourceUrl = resolveSourceUrl(feed);
@@ -275,6 +287,30 @@ export function LiveIncidentFeed({ items, isLoading = false, error = null, onRet
             </div>
           );
         })}
+      </div>
+
+      <div className="flex border-t border-border/40">
+        {hasMore && (
+          <button
+            type="button"
+            onClick={loadMore}
+            className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/20 transition-colors"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+            Load {Math.min(PAGE_SIZE, remaining)} more
+            <span className="text-muted-foreground/50">({remaining} left)</span>
+          </button>
+        )}
+        {visibleCount > PAGE_SIZE && (
+          <button
+            type="button"
+            onClick={collapse}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/20 transition-colors border-l border-border/40"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+            Collapse
+          </button>
+        )}
       </div>
     </div>
   );
