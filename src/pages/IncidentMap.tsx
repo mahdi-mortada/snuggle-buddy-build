@@ -73,6 +73,7 @@ type OSMLocation = {
 const categories: IncidentCategory[] = ['violence', 'protest', 'natural_disaster', 'infrastructure', 'health', 'terrorism', 'cyber', 'armed_conflict', 'other'];
 
 const INCIDENT_MAP_DEBUG = true;
+const FEED_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 const markerKindStyles: Record<MarkerKind, { emoji: string; color: string; label: string }> = {
   violence:           { emoji: '\u2694\uFE0F', color: '#ef4444', label: 'Violence' },
@@ -408,7 +409,7 @@ export default function IncidentMap() {
   const hasFittedBounds = useRef(false);
 
   const [selectedCategories, setSelectedCategories] = useState<Set<IncidentCategory>>(new Set(categories));
-  const [timeRange, setTimeRange] = useState('24h');
+  const [timeRange, setTimeRange] = useState('48h');
   const [geoJsonData, setGeoJsonData] = useState<LebanonGeoJson | null>(null);
   const [osmLocations, setOsmLocations] = useState<OSMLocation[]>([]);
   const [liveIncidents, setLiveIncidents] = useState<Incident[]>([]);
@@ -429,8 +430,8 @@ export default function IncidentMap() {
 
     try {
       const [nextIncidents, nextTelegramFeeds] = await Promise.all([
-        fetchBackendLiveIncidents(25),
-        fetchBackendOfficialFeedPosts(30),
+        fetchBackendLiveIncidents(100),
+        fetchBackendOfficialFeedPosts(50),
       ]);
       setLiveIncidents(nextIncidents);
       setTelegramFeeds(nextTelegramFeeds);
@@ -466,10 +467,14 @@ export default function IncidentMap() {
         ? 1 * 3600 * 1000
         : timeRange === '6h'
           ? 6 * 3600 * 1000
+          : timeRange === '48h'
+            ? 48 * 3600 * 1000
           : timeRange === '7d'
             ? 7 * 24 * 3600 * 1000
             : 24 * 3600 * 1000;
-    return Date.now() - timeMs;
+    const selectedCutoff = Date.now() - timeMs;
+    const feedWindowCutoff = Date.now() - FEED_WINDOW_MS;
+    return Math.max(selectedCutoff, feedWindowCutoff);
   }, [timeRange]);
 
   const filteredIncidents = useMemo(() => {
@@ -477,7 +482,7 @@ export default function IncidentMap() {
 
     return liveIncidents.filter((incident) => {
       const createdAt = new Date(incident.createdAt).getTime();
-      const withinTime = Number.isFinite(createdAt) ? createdAt >= cutoff : true;
+      const withinTime = Number.isFinite(createdAt) ? createdAt >= cutoff : false;
       const categoryOk = selectedCategories.has(incident.category);
       return withinTime && categoryOk;
     });
@@ -487,7 +492,7 @@ export default function IncidentMap() {
     const cutoff = cutoffTimestamp;
     return telegramFeeds.filter((feed) => {
       const publishedAt = new Date(feed.publishedAt).getTime();
-      return Number.isFinite(publishedAt) ? publishedAt >= cutoff : true;
+      return Number.isFinite(publishedAt) ? publishedAt >= cutoff : false;
     });
   }, [telegramFeeds, cutoffTimestamp]);
 
@@ -754,7 +759,7 @@ export default function IncidentMap() {
         {/* Controls */}
         <div className="glass-panel p-3 flex items-center gap-4 flex-wrap">
           <div className="flex gap-1">
-            {['1h', '6h', '24h', '7d'].map((r) => (
+            {['1h', '6h', '24h', '48h', '7d'].map((r) => (
               <button
                 key={r}
                 onClick={() => setTimeRange(r)}

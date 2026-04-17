@@ -25,7 +25,7 @@ def _serialize_post(post: object) -> dict[str, object]:
 
 @router.get("", response_model=ApiResponse[list[OfficialFeedPostOut]])
 async def list_official_feed_posts(
-    limit: int = Query(default=24, ge=1, le=60),
+    limit: int = Query(default=50, ge=1, le=50),
     current_user: UserRecord = Depends(_current_user),
 ) -> ApiResponse[list[OfficialFeedPostOut]]:
     _ = current_user

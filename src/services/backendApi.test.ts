@@ -16,6 +16,11 @@ describe('fetchBackendDashboardSnapshot', () => {
   });
 
   it('merges filtered official-feed incidents into the shared live incident snapshot without duplicates', async () => {
+    const now = Date.now();
+    const liveCreatedAt = new Date(now - 30 * 60 * 1000).toISOString();
+    const officialDupPublishedAt = new Date(now - 20 * 60 * 1000).toISOString();
+    const officialUniquePublishedAt = new Date(now - 10 * 60 * 1000).toISOString();
+
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -27,7 +32,7 @@ describe('fetchBackendDashboardSnapshot', () => {
         });
       }
 
-      if (url.includes('/api/v1/incidents/live?limit=30')) {
+      if (url.includes('/api/v1/incidents/live?limit=100')) {
         return jsonResponse({
           success: true,
           data: [
@@ -68,15 +73,15 @@ describe('fetchBackendDashboardSnapshot', () => {
                 url: 'https://news.example/live-1',
                 verifiedBy: [],
               },
-              created_at: '2026-04-03T09:00:00Z',
-              updated_at: '2026-04-03T09:00:00Z',
+              created_at: liveCreatedAt,
+              updated_at: liveCreatedAt,
             },
           ],
           error: null,
         });
       }
 
-      if (url.includes('/api/v1/official-feeds?limit=24')) {
+      if (url.includes('/api/v1/official-feeds?limit=50')) {
         return jsonResponse({
           success: true,
           data: [
@@ -99,7 +104,7 @@ describe('fetchBackendDashboardSnapshot', () => {
                 url: 'https://t.me/LBCI_NEWS',
                 verifiedBy: [],
               },
-              published_at: '2026-04-03T09:01:00Z',
+              published_at: officialDupPublishedAt,
               is_safety_relevant: true,
               category: 'violence',
               severity: 'critical',
@@ -128,7 +133,7 @@ describe('fetchBackendDashboardSnapshot', () => {
                 url: 'https://t.me/MTVLebanoNews',
                 verifiedBy: [],
               },
-              published_at: '2026-04-03T09:02:00Z',
+              published_at: officialUniquePublishedAt,
               is_safety_relevant: true,
               category: 'violence',
               severity: 'high',
@@ -145,15 +150,15 @@ describe('fetchBackendDashboardSnapshot', () => {
 
       if (
         url.includes('/api/v1/dashboard/overview') ||
-        url.includes('/api/v1/incidents?page=1&per_page=50') ||
+        url.includes('/api/v1/incidents?page=1&per_page=100') ||
         url.includes('/api/v1/alerts') ||
         url.includes('/api/v1/risk/current') ||
         url.includes('/api/v1/dashboard/trends')
       ) {
         return jsonResponse({
           success: true,
-          data: url.includes('/api/v1/incidents?page=1&per_page=50')
-            ? { items: [], page: 1, per_page: 50, total: 0 }
+          data: url.includes('/api/v1/incidents?page=1&per_page=100')
+            ? { items: [], page: 1, per_page: 100, total: 0 }
             : url.includes('/api/v1/dashboard/overview')
               ? { total_incidents_24h: 0, active_alerts: 0, avg_risk_score: 0, top_risk_region: 'Unknown' }
               : [],

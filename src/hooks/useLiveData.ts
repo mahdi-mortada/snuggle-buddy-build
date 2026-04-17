@@ -7,6 +7,7 @@ import { acknowledgeBackendAlert, fetchBackendDashboardSnapshot } from '@/servic
 import { toast } from 'sonner';
 
 const NEWS_URL = runtimeConfig.newsUrl;
+const LIVE_FEED_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 const SEEN_SOURCE_URLS_KEY = "crisisshield.seenSourceUrls.v1";
 const SEEN_TITLES_KEY = "crisisshield.seenTitles.v1";
@@ -116,6 +117,14 @@ function sourceInitials(name: string): string {
   return name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
+function isWithinLiveFeedWindow(value: string): boolean {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+  return timestamp >= Date.now() - LIVE_FEED_WINDOW_MS;
+}
+
 interface RawNewsItem {
   title: string;
   description: string;
@@ -203,11 +212,14 @@ export function useLiveData(refreshInterval = 30000) {
     alerts: Alert[];
     trendData: TrendDataPoint[];
   }) => {
+    const recentIncidents = snapshot.incidents
+      .filter((incident) => isWithinLiveFeedWindow(incident.createdAt))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
     const previousIds = new Set(incidentsRef.current.map((incident) => incident.id));
-    const freshIds = snapshot.incidents.filter((incident) => !previousIds.has(incident.id)).length;
+    const freshIds = recentIncidents.filter((incident) => !previousIds.has(incident.id)).length;
 
-    incidentsRef.current = snapshot.incidents;
-    setIncidents(snapshot.incidents);
+    incidentsRef.current = recentIncidents;
+    setIncidents(recentIncidents);
     setStats(snapshot.stats);
     setRiskScores(snapshot.riskScores);
     setAlerts(snapshot.alerts);
@@ -294,6 +306,7 @@ export function useLiveData(refreshInterval = 30000) {
         const byId = new Map<string, Incident>(incidentsRef.current.map((i) => [i.id, i]));
         acceptedIncidents.forEach((inc) => byId.set(inc.id, inc));
         const mergedIncidents = Array.from(byId.values())
+          .filter((incident) => isWithinLiveFeedWindow(incident.createdAt))
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 30);
         incidentsRef.current = mergedIncidents;
