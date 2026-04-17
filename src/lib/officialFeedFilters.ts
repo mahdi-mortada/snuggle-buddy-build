@@ -51,6 +51,8 @@ export function prepareOfficialFeedPosts(
       post.publisherName,
       post.accountLabel,
       post.accountHandle,
+      post.locationName,
+      post.region,
       post.content,
       ...(post.signalTags ?? []),
       ...(post.matchedKeywords ?? []),
@@ -58,10 +60,19 @@ export function prepareOfficialFeedPosts(
       .filter(Boolean)
       .join(' ');
 
-    // Precompute normalized text and inferred regions once so the UI can
-    // re-filter instantly as users change source, region, or keyword filters.
-    const matchedRegionIds = inferRegionIdsFromText(rawSearchText, locationIndex);
-    const matchedRegions = matchedRegionIds
+    // Prefer the backend-resolved location/region as the canonical filter source.
+    // Fall back to raw text inference only when the backend payload is too generic
+    // to map to a region option (for example, unresolved legacy payloads).
+    const backendResolvedLocationText = [post.locationName, post.region]
+      .filter(Boolean)
+      .join(' ');
+    const matchedRegionIds = hasSpecificBackendLocation(post.locationName)
+      ? inferRegionIdsFromText(backendResolvedLocationText, locationIndex)
+      : [];
+    const fallbackRegionIds = matchedRegionIds.length > 0
+      ? matchedRegionIds
+      : inferRegionIdsFromText(rawSearchText, locationIndex);
+    const matchedRegions = fallbackRegionIds
       .map((regionId) => {
         const region = locationIndex?.regionLookup.get(regionId);
         if (!region) return null;
@@ -82,10 +93,16 @@ export function prepareOfficialFeedPosts(
       sourceLabel,
       searchTextLatin: normalizeLatinText(rawSearchText),
       searchTextArabic: normalizeArabicText(rawSearchText),
-      matchedRegionIds,
+      matchedRegionIds: fallbackRegionIds,
       matchedRegions,
     };
   });
+}
+
+function hasSpecificBackendLocation(locationName: string): boolean {
+  const latinLocation = normalizeLatinText(locationName);
+  const arabicLocation = normalizeArabicText(locationName);
+  return Boolean(locationName.trim()) && latinLocation !== 'lebanon' && arabicLocation !== 'لبنان';
 }
 
 export function buildRegionOptions(preparedPosts: PreparedOfficialFeedPost[]): FilterOption[] {

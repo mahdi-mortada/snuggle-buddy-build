@@ -110,6 +110,15 @@ type BackendOfficialFeedPost = {
   risk_score?: number;
   keywords?: string[];
   is_safety_relevant?: boolean;
+  ai_signals?: string[] | null;
+  ai_scenario?: string | null;
+  ai_severity?: string | null;
+  ai_confidence?: number | null;
+  ai_is_rumor?: boolean | null;
+  ai_sentiment?: string | null;
+  location_resolution_method?: string;
+  ai_analysis_status?: string;
+  ai_location_names?: string[];
 };
 
 type BackendOfficialFeedSource = {
@@ -330,6 +339,15 @@ function mapOfficialFeedPost(post: BackendOfficialFeedPost): OfficialFeedPost {
     riskScore: post.risk_score ?? 0,
     keywords: post.keywords ?? [],
     isSafetyRelevant: post.is_safety_relevant ?? false,
+    aiSignals: post.ai_signals ?? null,
+    aiScenario: post.ai_scenario ?? null,
+    aiSeverity: post.ai_severity ?? null,
+    aiConfidence: post.ai_confidence ?? null,
+    aiIsRumor: post.ai_is_rumor ?? null,
+    aiSentiment: post.ai_sentiment ?? null,
+    locationResolutionMethod: (post.location_resolution_method ?? 'none') as OfficialFeedPost['locationResolutionMethod'],
+    aiAnalysisStatus: (post.ai_analysis_status ?? 'missing_key') as OfficialFeedPost['aiAnalysisStatus'],
+    aiLocationNames: post.ai_location_names ?? [],
   };
 }
 
@@ -736,6 +754,8 @@ export type HateSpeechTrendCluster = {
   flagRate: number;
   riskLevel: 'critical' | 'high' | 'medium' | 'low';
 };
+
+export type HateSpeechSortOption = 'priority' | 'score' | 'engagement' | 'velocity' | 'recent';
 
 export type HateSpeechStats = {
   totalScraped: number;
