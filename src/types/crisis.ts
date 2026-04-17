@@ -99,6 +99,15 @@ export interface OfficialFeedPost {
   riskScore: number;
   keywords: string[];
   isSafetyRelevant: boolean;
+  aiSignals?: string[] | null;
+  aiScenario?: string | null;
+  aiSeverity?: string | null;
+  aiConfidence?: number | null;
+  aiIsRumor?: boolean | null;
+  aiSentiment?: string | null;
+  locationResolutionMethod: 'ai' | 'fallback' | 'none';
+  aiAnalysisStatus: 'success' | 'timeout' | 'error' | 'missing_key';
+  aiLocationNames: string[];
 }
 
 export interface OfficialFeedSource {

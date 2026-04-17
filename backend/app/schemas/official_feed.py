@@ -32,3 +32,12 @@ class OfficialFeedPostOut(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     matched_keywords: list[str] = Field(default_factory=list)
     primary_keyword: str | None = None
+    ai_signals: list[str] | None = None
+    ai_scenario: str | None = None
+    ai_severity: str | None = None
+    ai_confidence: float | None = None
+    ai_is_rumor: bool | None = None
+    ai_sentiment: str | None = None
+    location_resolution_method: str = "none"
+    ai_analysis_status: str = "missing_key"
+    ai_location_names: list[str] = Field(default_factory=list)

@@ -378,6 +378,8 @@ export default function OfficialFeeds() {
                         {renderHighlightedText(post.content, debouncedKeyword)}
                       </p>
 
+                      <LocationSummary post={post} />
+
                       {matchedRegions.length > 0 ? (
                         <div className="mt-4 flex flex-wrap gap-2">
                           {matchedRegions.slice(0, 4).map((region) => (
@@ -425,6 +427,8 @@ export default function OfficialFeeds() {
                           ))}
                         </div>
                       ) : null}
+
+                      <IntelligenceSection post={post} />
                     </article>
                   );
                 })}
@@ -469,6 +473,100 @@ export default function OfficialFeeds() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+function severityColor(severity: string | null | undefined): string {
+  switch (severity?.toLowerCase()) {
+    case 'critical': return 'text-red-400';
+    case 'high':     return 'text-orange-400';
+    case 'medium':   return 'text-yellow-400';
+    default:         return 'text-slate-400';
+  }
+}
+
+function sentimentColor(sentiment: string): string {
+  switch (sentiment) {
+    case 'panic':       return 'text-red-400';
+    case 'escalation':  return 'text-orange-400';
+    case 'tension':     return 'text-yellow-400';
+    case 'calm':        return 'text-emerald-400';
+    default:            return 'text-slate-400';
+  }
+}
+
+function LocationSummary({ post }: { post: OfficialFeedPost }): ReactNode {
+  const regionLabel = post.region?.trim() || null;
+  const showRegionLabel = Boolean(regionLabel) && regionLabel?.toLowerCase() !== 'beirut';
+
+  if (!showRegionLabel && !post.isSafetyRelevant) return null;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      {showRegionLabel ? (
+        <span className="rounded-full border border-border/50 bg-secondary/50 px-2.5 py-1 text-[11px] text-muted-foreground">
+          Region: {regionLabel}
+        </span>
+      ) : null}
+      {post.isSafetyRelevant ? (
+        <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] text-primary/90">
+          Risk {Math.round(post.riskScore)}/100
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function IntelligenceSection({ post }: { post: OfficialFeedPost }): ReactNode {
+  if (!post.aiScenario) return null;
+
+  const confidencePct = post.aiConfidence != null
+    ? `${Math.round(post.aiConfidence * 100)}%`
+    : null;
+  const status = post.aiIsRumor ? 'Unverified' : 'Verified';
+  const scenario = post.aiScenario.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const sentiment = post.aiSentiment
+    ? post.aiSentiment.charAt(0).toUpperCase() + post.aiSentiment.slice(1)
+    : null;
+
+  return (
+    <div className="mt-4 border-t border-border/30 pt-3">
+      <div className="mb-2 text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+        Intelligence
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1">
+        <span className="text-[11px] text-slate-400">
+          Type: <span className="text-slate-300">{scenario}</span>
+        </span>
+        {post.aiSeverity ? (
+          <span className={`text-[11px] ${severityColor(post.aiSeverity)}`}>
+            Severity: <span className="capitalize">{post.aiSeverity}</span>
+          </span>
+        ) : null}
+        {sentiment ? (
+          <span className={`text-[11px] ${sentimentColor(post.aiSentiment ?? '')}`}>
+            Mood: <span>{sentiment}</span>
+          </span>
+        ) : null}
+        {confidencePct ? (
+          <span className="text-[11px] text-slate-400">
+            Confidence: <span className="text-slate-300">{confidencePct}</span>
+          </span>
+        ) : null}
+        <span className="text-[11px] text-slate-400">
+          Status:{' '}
+          <span className={post.aiIsRumor ? 'text-yellow-400' : 'text-emerald-400'}>
+            {status}
+          </span>
+        </span>
+        {post.locationResolutionMethod === 'ai' && post.aiLocationNames.length > 0 ? (
+          <span className="text-[11px] text-slate-400">
+            Location:{' '}
+            <span className="text-emerald-300">{post.aiLocationNames.join(', ')}</span>
+          </span>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

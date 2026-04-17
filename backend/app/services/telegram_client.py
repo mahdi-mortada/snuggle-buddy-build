@@ -68,6 +68,40 @@ def _username_to_fake_id(username: str) -> int:
     return 100_000_000 + (int(digest[:8], 16) % 900_000_000)
 
 
+def log_telegram_startup_status() -> None:
+    settings = get_settings()
+
+    if not TELETHON_AVAILABLE:
+        logger.error(
+            "Telegram integration disabled: Telethon is not installed in the active Python environment. "
+            "Install it with `python -m pip install telethon` inside the project virtual environment."
+        )
+        return
+
+    missing_credentials: list[str] = []
+    if settings.telegram_api_id <= 0:
+        missing_credentials.append("TELEGRAM_API_ID")
+    if not settings.telegram_api_hash.strip():
+        missing_credentials.append("TELEGRAM_API_HASH")
+
+    if missing_credentials:
+        logger.warning(
+            "Telegram integration is not fully configured. Missing %s. "
+            "The backend will fall back to HTTP validation for public channels.",
+            ", ".join(missing_credentials),
+        )
+        return
+
+    if not settings.telegram_session_string.strip():
+        logger.warning(
+            "Telegram integration is missing TELEGRAM_SESSION_STRING. Telethon is installed and API credentials are set, "
+            "but real Telegram API validation will stay disabled until a session string is configured."
+        )
+        return
+
+    logger.info("Telegram integration is ready. Telethon is installed and Telegram API credentials are configured.")
+
+
 class TelegramClientService:
     # ── Telethon-based validation (requires API credentials) ─────────────────
 

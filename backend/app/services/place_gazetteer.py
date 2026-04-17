@@ -38,6 +38,46 @@ ALIAS_FIELDS = (
     "short_name",
 )
 ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]")
+AMBIGUOUS_ALIASES_REQUIRING_CONTEXT = {
+    "صور",
+    "الوقف",
+    "واقف",
+    "الواقف",
+}
+LOCATIVE_CONTEXT_TOKENS = {
+    "in",
+    "at",
+    "to",
+    "from",
+    "near",
+    "inside",
+    "outside",
+    "toward",
+    "towards",
+    "city",
+    "town",
+    "village",
+    "area",
+    "district",
+    "suburb",
+    "في",
+    "الى",
+    "إلى",
+    "من",
+    "نحو",
+    "قرب",
+    "بالقرب",
+    "على",
+    "فوق",
+    "داخل",
+    "خارج",
+    "مدينة",
+    "بلدة",
+    "قرية",
+    "منطقة",
+    "حي",
+    "ضاحية",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +120,8 @@ class LebanonPlaceGazetteer:
         for alias, place in self._ranked_aliases:
             if f" {alias} " not in haystack:
                 continue
+            if alias in AMBIGUOUS_ALIASES_REQUIRING_CONTEXT and not _has_locative_context(normalized_text, alias):
+                continue
             confidence = min(0.995, 0.93 + min(len(alias), 32) / 320)
             return GazetteerMatch(
                 place=place,
@@ -106,7 +148,7 @@ class LebanonPlaceGazetteer:
                 continue
 
             direct = self._alias_index.get(normalized_candidate)
-            if direct is not None:
+            if direct is not None and normalized_candidate not in AMBIGUOUS_ALIASES_REQUIRING_CONTEXT:
                 return GazetteerMatch(
                     place=direct,
                     confidence=0.98,
@@ -120,6 +162,8 @@ class LebanonPlaceGazetteer:
 
             for alias, place in self._ranked_aliases:
                 alias_tokens = alias.split()
+                if len(candidate_tokens) == 1 and len(alias_tokens) > 1:
+                    continue
                 if normalized_candidate in alias or alias in normalized_candidate:
                     confidence = 0.87 if normalized_candidate != alias else 0.98
                 elif all(token in alias_tokens for token in candidate_tokens):
@@ -327,6 +371,24 @@ def _fuzzy_score(query: str, target: str) -> float:
 
     overlap = len(query_bigrams & target_bigrams)
     return 2 * overlap / (len(query_bigrams) + len(target_bigrams))
+
+
+def _has_locative_context(normalized_text: str, alias: str) -> bool:
+    tokens = normalized_text.split()
+    alias_tokens = alias.split()
+    alias_len = len(alias_tokens)
+
+    for start in range(len(tokens) - alias_len + 1):
+        if tokens[start:start + alias_len] != alias_tokens:
+            continue
+
+        before = tokens[max(0, start - 2):start]
+        after = tokens[start + alias_len:min(len(tokens), start + alias_len + 1)]
+        immediate_neighbors = before[-1:] + after
+        if any(token in LOCATIVE_CONTEXT_TOKENS for token in immediate_neighbors):
+            return True
+
+    return False
 
 
 place_gazetteer = LebanonPlaceGazetteer()
