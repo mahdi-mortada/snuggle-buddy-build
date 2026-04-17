@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from html import unescape
+import logging
 import re
 from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from app.config import get_settings
 from app.models.source import SourceRecord
@@ -310,6 +314,8 @@ class OfficialFeedService:
         self._cache: list[OfficialFeedPost] = []
         self._cached_at: datetime | None = None
         self._cache_ttl = timedelta(minutes=3)
+        self._refresh_lock = asyncio.Lock()
+        self._is_refreshing = False
 
     def invalidate_cache(self) -> None:
         self._cache = []
@@ -320,35 +326,85 @@ class OfficialFeedService:
         if not settings.official_feeds_enabled:
             return []
 
-        # Keep a strict total cap for Telegram official-feed output.
         requested_limit = max(1, min(limit or settings.official_feed_limit, 50))
         now = datetime.now(UTC)
-        cutoff = now - timedelta(hours=48)
-        if self._cached_at and now - self._cached_at < self._cache_ttl:
+
+        # Always return from cache immediately — never block the HTTP request
+        # on live Telegram scraping. The background loop keeps the cache fresh.
+        cache_fresh = self._cached_at and now - self._cached_at < self._cache_ttl
+        if cache_fresh:
             return self._cache[:requested_limit]
 
-        posts: list[OfficialFeedPost] = []
-        accounts = self._accounts()
-        keyword_matcher = build_official_feed_keyword_matcher(settings.official_feed_filter_keywords)
-        async with httpx.AsyncClient(
-            timeout=15,
-            follow_redirects=True,
-            headers={"User-Agent": "CrisisShield/1.0 (+local-dev)"},
-        ) as client:
-            for account in accounts:
-                posts.extend(await self._fetch_posts_for_account(client, account, cutoff))
+        # Cache is stale or empty. If no refresh is running, kick one off in the
+        # background so the next request (after ~30-60s) gets fresh data.
+        if not self._is_refreshing:
+            asyncio.ensure_future(self._do_refresh())
 
-        posts.sort(key=lambda item: item.published_at, reverse=True)
-        recent_posts = [post for post in posts if post.published_at >= cutoff]
-        deduped = self._dedupe_posts(recent_posts)
-        filtered: list[OfficialFeedPost] = []
-        for post in deduped:
-            if enriched := await self._process_post(post, keyword_matcher):
-                filtered.append(enriched)
-        filtered.sort(key=lambda item: item.published_at, reverse=True)
-        self._cache = filtered
-        self._cached_at = now
-        return filtered[:requested_limit]
+        # Return whatever is in cache right now (may be empty on first load).
+        return self._cache[:requested_limit]
+
+    async def _do_refresh(self) -> None:
+        """Fetch and process posts from all accounts, then update the cache."""
+        if self._is_refreshing:
+            return
+        self._is_refreshing = True
+        try:
+            settings = get_settings()
+            now = datetime.now(UTC)
+            cutoff = now - timedelta(hours=48)
+            accounts = self._accounts()
+            if not accounts:
+                return
+            keyword_matcher = build_official_feed_keyword_matcher(settings.official_feed_filter_keywords)
+            posts: list[OfficialFeedPost] = []
+            async with httpx.AsyncClient(
+                timeout=15,
+                follow_redirects=True,
+                headers={"User-Agent": "CrisisShield/1.0 (+local-dev)"},
+            ) as client:
+                # Fetch all accounts concurrently
+                results = await asyncio.gather(
+                    *[self._fetch_posts_for_account(client, account, cutoff) for account in accounts],
+                    return_exceptions=True,
+                )
+                for result in results:
+                    if isinstance(result, list):
+                        posts.extend(result)
+
+            posts.sort(key=lambda item: item.published_at, reverse=True)
+            recent_posts = [post for post in posts if post.published_at >= cutoff]
+            deduped = self._dedupe_posts(recent_posts)
+
+            # Process posts concurrently (NLP + Claude AI)
+            process_results = await asyncio.gather(
+                *[self._process_post(post, keyword_matcher) for post in deduped],
+                return_exceptions=True,
+            )
+            filtered = [p for p in process_results if isinstance(p, OfficialFeedPost)]
+            filtered.sort(key=lambda item: item.published_at, reverse=True)
+            self._cache = filtered
+            self._cached_at = now
+            logger.info("Official feeds cache refreshed: %d posts from %d accounts", len(filtered), len(accounts))
+        except Exception as exc:
+            logger.warning("Official feeds refresh failed: %s", exc)
+        finally:
+            self._is_refreshing = False
+
+    async def start_background_refresh(self) -> None:
+        """Start a background loop that refreshes the cache every 3 minutes.
+        Call once from app lifespan after startup."""
+        # Trigger an immediate first refresh so data is available quickly
+        asyncio.ensure_future(self._do_refresh())
+        asyncio.ensure_future(self._refresh_loop())
+
+    async def _refresh_loop(self) -> None:
+        """Periodic background refresh — runs forever."""
+        while True:
+            await asyncio.sleep(self._cache_ttl.total_seconds())
+            try:
+                await self._do_refresh()
+            except Exception as exc:
+                logger.warning("Official feeds background refresh error: %s", exc)
 
     async def _fetch_posts_for_account(
         self,

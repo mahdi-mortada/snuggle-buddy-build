@@ -86,6 +86,31 @@ export default function OfficialFeeds() {
     void loadFeedData();
   }, []);
 
+  // Auto-retry if posts come back empty (background cache is still warming up).
+  // Retries up to 4 times with 15s interval, then falls back to 60s polling.
+  useEffect(() => {
+    let retryCount = 0;
+    const MAX_RETRIES = 4;
+    const RETRY_INTERVAL_MS = 15000;
+    let timer: ReturnType<typeof window.setInterval> | null = null;
+
+    const scheduleRetry = () => {
+      timer = window.setInterval(() => {
+        if (retryCount >= MAX_RETRIES) {
+          if (timer) window.clearInterval(timer);
+          return;
+        }
+        retryCount++;
+        void loadFeedData();
+      }, RETRY_INTERVAL_MS);
+    };
+
+    if (posts.length === 0 && !isLoading) {
+      scheduleRetry();
+    }
+    return () => { if (timer) window.clearInterval(timer); };
+  }, [posts.length, isLoading]);
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       void loadFeedData();

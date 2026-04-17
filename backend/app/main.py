@@ -79,6 +79,9 @@ async def lifespan(app: FastAPI):
         logger.warning("Startup live news fetch failed (continuing): %s", exc)
     # Start background news refresh loop (every 5 minutes, independent of Celery)
     _news_refresh_task = asyncio.create_task(_news_refresh_loop(interval_seconds=300))
+    # Start official feeds background refresh loop (keeps Telegram cache warm)
+    from app.services.official_feeds import official_feed_service
+    await official_feed_service.start_background_refresh()
     # Start social media hate speech monitor background loop (every 30 minutes)
     from app.services.social_monitor import social_monitor_service
     from app.services.x_scraper import x_scraper_service
