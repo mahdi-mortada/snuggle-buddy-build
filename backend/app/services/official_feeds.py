@@ -305,7 +305,8 @@ class OfficialFeedService:
         if not settings.official_feeds_enabled:
             return []
 
-        requested_limit = limit or settings.official_feed_limit
+        # Keep a strict total cap for Telegram official-feed output.
+        requested_limit = max(1, min(limit or settings.official_feed_limit, 50))
         now = datetime.now(UTC)
         cutoff = now - timedelta(hours=48)
         if self._cached_at and now - self._cached_at < self._cache_ttl:

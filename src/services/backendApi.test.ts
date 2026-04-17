@@ -81,7 +81,7 @@ describe('fetchBackendDashboardSnapshot', () => {
         });
       }
 
-      if (url.includes('/api/v1/official-feeds?limit=100')) {
+      if (url.includes('/api/v1/official-feeds?limit=50')) {
         return jsonResponse({
           success: true,
           data: [

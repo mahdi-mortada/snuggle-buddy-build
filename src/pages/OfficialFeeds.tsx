@@ -60,7 +60,7 @@ export default function OfficialFeeds() {
     setError(null);
     try {
       const [nextPosts, nextSources] = await Promise.all([
-        fetchBackendOfficialFeedPosts(1000),
+        fetchBackendOfficialFeedPosts(50),
         fetchBackendOfficialFeedSources(),
       ]);
       const recentPosts = nextPosts

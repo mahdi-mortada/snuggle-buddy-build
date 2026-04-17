@@ -431,7 +431,7 @@ export default function IncidentMap() {
     try {
       const [nextIncidents, nextTelegramFeeds] = await Promise.all([
         fetchBackendLiveIncidents(100),
-        fetchBackendOfficialFeedPosts(100),
+        fetchBackendOfficialFeedPosts(50),
       ]);
       setLiveIncidents(nextIncidents);
       setTelegramFeeds(nextTelegramFeeds);

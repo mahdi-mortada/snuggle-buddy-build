@@ -43,7 +43,7 @@ export default function Dashboard() {
     try {
       const [nextIncidents, nextOfficialFeeds] = await Promise.all([
         fetchBackendLiveIncidents(100),
-        fetchBackendOfficialFeedPosts(100),
+        fetchBackendOfficialFeedPosts(50),
       ]);
 
       setIncidents(nextIncidents);

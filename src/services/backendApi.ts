@@ -647,7 +647,7 @@ export async function acknowledgeBackendAlert(alertId: string): Promise<Alert> {
   return mapAlert(alert);
 }
 
-export async function fetchBackendOfficialFeedPosts(limit = 100): Promise<OfficialFeedPost[]> {
+export async function fetchBackendOfficialFeedPosts(limit = 50): Promise<OfficialFeedPost[]> {
   const posts = await requestBackend<BackendOfficialFeedPost[]>(`/api/v1/official-feeds?limit=${limit}`);
   return sortOfficialPostsNewestFirst(
     posts
