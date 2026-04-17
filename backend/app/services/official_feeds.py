@@ -61,6 +61,15 @@ class OfficialFeedPost:
     keywords: list[str]
     matched_keywords: list[str] = field(default_factory=list)
     primary_keyword: str | None = None
+    ai_signals: list[str] | None = None
+    ai_scenario: str | None = None
+    ai_severity: str | None = None
+    ai_confidence: float | None = None
+    ai_is_rumor: bool | None = None
+    ai_sentiment: str | None = None
+    location_resolution_method: str = "none"   # "ai" | "fallback" | "none"
+    ai_analysis_status: str = "missing_key"    # "success" | "timeout" | "error" | "missing_key"
+    ai_location_names: list[str] = field(default_factory=list)  # English gazetteer names for all AI-resolved locations
 
 KEYWORD_TAGS: tuple[str, ...] = (
     "lebanon",
@@ -181,6 +190,12 @@ REGION_KEYWORDS: list[tuple[str, str, str]] = [
     ("lebanon", "Beirut", "Lebanon"),
     ("لبنان", "Beirut", "Lebanon"),
 ]
+AMBIGUOUS_REGION_KEYWORDS: set[str] = {"\u0635\u0648\u0631"}
+REGION_LOCATIVE_CONTEXT_TOKENS: set[str] = {
+    "in", "at", "near", "to", "from", "city", "town", "village", "area", "district", "suburb",
+    "\u0641\u064a", "\u0625\u0644\u0649", "\u0627\u0644\u0649", "\u0645\u0646", "\u0646\u062d\u0648", "\u0642\u0631\u0628", "\u0639\u0644\u0649",
+    "\u0645\u062f\u064a\u0646\u0629", "\u0628\u0644\u062f\u0629", "\u0642\u0631\u064a\u0629", "\u0645\u0646\u0637\u0642\u0629", "\u0636\u0627\u062d\u064a\u0629",
+}
 
 CATEGORY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     (
@@ -438,11 +453,26 @@ class OfficialFeedService:
         return posts
 
     async def _process_post(self, post: OfficialFeedPost, keyword_matcher: KeywordMatcher) -> OfficialFeedPost | None:
+        from app.services.claude_service import analyze_post
+
         nlp_result = await nlp_pipeline.process(
             post.content,
             metadata={"source_id": post.source_id, "source_name": post.source_name, "is_custom": post.is_custom},
         )
-        enriched = self._enrich_post(post, nlp_result=nlp_result)
+
+        # Single unified Claude call — extracts locations AND full analysis in one
+        # request (halves API latency vs the former two-call pattern).
+        ai_result = await analyze_post(post.content)
+        ai_status: str = str(ai_result.get("_status", "error"))
+        ai_locations: list[str] = ai_result.get("locations", [])  # type: ignore[assignment]
+        ai_location_confidence: float = float(ai_result.get("location_confidence", 0.0))
+
+        enriched = self._enrich_post(
+            post,
+            nlp_result=nlp_result,
+            ai_locations=ai_locations,
+            ai_location_confidence=ai_location_confidence,
+        )
         if enriched is None:
             return None
 
@@ -451,6 +481,18 @@ class OfficialFeedService:
             if not match_result.has_match:
                 return None
             enriched = self._apply_match_metadata(enriched, match_result.matched_keywords)
+
+        # Attach AI intelligence fields — reuse the result already in cache
+        enriched = replace(
+            enriched,
+            ai_signals=ai_result.get("signals", []),
+            ai_scenario=ai_result.get("scenario_type"),
+            ai_severity=ai_result.get("severity"),
+            ai_confidence=ai_result.get("confidence_score"),
+            ai_is_rumor=ai_result.get("is_rumor"),
+            ai_sentiment=ai_result.get("sentiment"),
+            ai_analysis_status=ai_status,
+        )
 
         return enriched
 
@@ -501,7 +543,14 @@ class OfficialFeedService:
         path = urlparse(post_url).path.lower().strip("/")
         return path
 
-    def _enrich_post(self, post: OfficialFeedPost, *, nlp_result: dict[str, object] | None = None) -> OfficialFeedPost | None:
+    def _enrich_post(
+        self,
+        post: OfficialFeedPost,
+        *,
+        nlp_result: dict[str, object] | None = None,
+        ai_locations: list[str] | None = None,
+        ai_location_confidence: float = 0.0,
+    ) -> OfficialFeedPost | None:
         # Custom sources are added intentionally by the user — always show their posts.
         # Default official sources go through Lebanon relevance + keyword filtering to
         # remove off-topic content from high-volume news channels.
@@ -522,7 +571,52 @@ class OfficialFeedService:
 
         severity = self._infer_severity(post.content)
         fallback_region, fallback_location_name = self._infer_region(post.content)
-        place_match = place_gazetteer.match_text(post.content)
+
+        # Location resolution priority:
+        #   1. AI-extracted names → gazetteer lookup (exact strings from text, no
+        #      false matches like "جديدة" = "new" being treated as Jdeideh).
+        #      Only trusted when Claude's location_confidence is ≥ 0.85 — below
+        #      that the model was uncertain and we should not surface a label.
+        #   2. Raw text gazetteer scan (fallback when AI unavailable or found nothing)
+        #   3. Keyword-based region inference (final fallback)
+        #
+        # Display name strategy:
+        #   - Gazetteer exact/alias match → use the clean English name from the DB.
+        #   - Gazetteer fuzzy match → DO NOT use it (fuzzy can return a broad nearby
+        #     city like "Tyre" for a small village "قصورة").  Instead, display the
+        #     exact Arabic string Claude extracted — it IS a literal substring of the
+        #     original news text so it is always correct.
+        #   - No gazetteer match → display the Arabic name Claude extracted.
+        _LOCATION_CONFIDENCE_THRESHOLD = 0.85
+        place_match = None
+        ai_matched = False
+        ai_location_names: list[str] = []
+        if ai_locations and ai_location_confidence >= _LOCATION_CONFIDENCE_THRESHOLD:
+            for loc in ai_locations:
+                if self._is_ambiguous_ai_location_without_context(post.content, loc):
+                    continue
+                if self._is_probable_partial_ai_location(post.content, loc):
+                    continue
+                single_match = place_gazetteer.match_candidates([loc])
+                if single_match is not None and place_match is None:
+                    place_match = single_match  # first match drives the map pin
+                    ai_matched = True
+                # Decide the display name shown in the blue chip:
+                # Only trust the gazetteer's English name for high-confidence matches
+                # (exact text substring or known alias).  A "fuzzy" match may resolve
+                # "قصورة" → "Tyre" — wrong and confusing.  Show the Arabic name instead.
+                if single_match is not None and single_match.match_type in ("exact", "alias"):
+                    display_name = single_match.place.name
+                else:
+                    # Fuzzy or no match: Claude's extracted string is exact from text.
+                    display_name = loc
+                if display_name not in ai_location_names:
+                    ai_location_names.append(display_name)
+        if place_match is None:
+            place_match = place_gazetteer.match_text(post.content)
+
+        location_resolution_method = "ai" if ai_matched else "fallback"
+
         if place_match is not None:
             region = fallback_region if fallback_region != "Beirut" or fallback_location_name != "Lebanon" else place_match.place.region
             location_name = place_match.place.name
@@ -543,7 +637,66 @@ class OfficialFeedService:
             risk_score=self._risk_score(severity, keywords, nlp_result=nlp_result),
             keywords=keywords,
             signal_tags=self._build_signal_tags(post.content, keywords),
+            location_resolution_method=location_resolution_method,
+            ai_location_names=ai_location_names,
         )
+
+    def _is_probable_partial_ai_location(self, content: str, candidate: str) -> bool:
+        normalized_content = re.sub(r"\s+", " ", content).strip().lower()
+        normalized_candidate = re.sub(r"\s+", " ", candidate).strip().lower()
+        if not normalized_candidate or " " in normalized_candidate:
+            return False
+
+        tokens = normalized_content.split()
+        for index, token in enumerate(tokens):
+            if token != normalized_candidate:
+                continue
+
+            phrases: list[str] = []
+            if index > 0:
+                phrases.append(f"{tokens[index - 1]} {tokens[index]}")
+            if index + 1 < len(tokens):
+                phrases.append(f"{tokens[index]} {tokens[index + 1]}")
+            if index > 0 and index + 1 < len(tokens):
+                phrases.append(f"{tokens[index - 1]} {tokens[index]} {tokens[index + 1]}")
+
+            for phrase in phrases:
+                phrase_match = place_gazetteer.match_candidates([phrase])
+                if phrase_match is not None and phrase_match.matched_alias != normalized_candidate:
+                    return True
+
+        return False
+
+    def _is_ambiguous_ai_location_without_context(self, content: str, candidate: str) -> bool:
+        normalized_candidate = re.sub(r"\s+", " ", candidate).strip().lower()
+        ambiguous_candidates = {
+            "\u0635\u0648\u0631",
+            "\u0627\u0644\u0648\u0642\u0641",
+            "\u0648\u0627\u0642\u0641",
+            "\u0627\u0644\u0648\u0627\u0642\u0641",
+        }
+        if normalized_candidate not in ambiguous_candidates:
+            return False
+
+        normalized_content = re.sub(r"[^\w\u0600-\u06ff]+", " ", content.lower())
+        tokens = [token for token in normalized_content.split() if token]
+        candidate_tokens = normalized_candidate.split()
+        candidate_len = len(candidate_tokens)
+        locative_tokens = {
+            "in", "at", "near", "to", "from", "city", "town", "village", "area", "district", "suburb",
+            "\u0641\u064a", "\u0625\u0644\u0649", "\u0627\u0644\u0649", "\u0645\u0646", "\u0646\u062d\u0648", "\u0642\u0631\u0628", "\u0639\u0644\u0649",
+            "\u0645\u062f\u064a\u0646\u0629", "\u0628\u0644\u062f\u0629", "\u0642\u0631\u064a\u0629", "\u0645\u0646\u0637\u0642\u0629", "\u062d\u064a", "\u0636\u0627\u062d\u064a\u0629",
+        }
+
+        for start in range(len(tokens) - candidate_len + 1):
+            if tokens[start:start + candidate_len] != candidate_tokens:
+                continue
+
+            immediate_neighbors = tokens[max(0, start - 1):start] + tokens[start + candidate_len:start + candidate_len + 1]
+            if any(token in locative_tokens for token in immediate_neighbors):
+                return False
+
+        return True
 
     def _is_lebanon_relevant(self, content: str) -> bool:
         # Normalise underscores to spaces so hashtag forms like #جنوب_لبنان match
@@ -556,7 +709,10 @@ class OfficialFeedService:
         matches = [
             (keyword, region, location_name)
             for keyword, region, location_name in REGION_KEYWORDS
-            if keyword in lowered
+            if keyword in lowered and (
+                keyword not in AMBIGUOUS_REGION_KEYWORDS
+                or self._has_region_keyword_context(lowered, keyword)
+            )
         ]
         if matches:
             generic_locations = {"Lebanon", "South Lebanon", "North Lebanon", "Mount Lebanon", "Bekaa Valley"}
@@ -566,6 +722,22 @@ class OfficialFeedService:
             )
             return region, location_name
         return "Beirut", "Lebanon"
+
+    def _has_region_keyword_context(self, lowered_content: str, keyword: str) -> bool:
+        normalized_content = re.sub(r"[^\w\u0600-\u06ff]+", " ", lowered_content)
+        tokens = [token for token in normalized_content.split() if token]
+        keyword_tokens = keyword.split()
+        keyword_len = len(keyword_tokens)
+
+        for start in range(len(tokens) - keyword_len + 1):
+            if tokens[start:start + keyword_len] != keyword_tokens:
+                continue
+
+            immediate_neighbors = tokens[max(0, start - 1):start] + tokens[start + keyword_len:start + keyword_len + 1]
+            if any(token in REGION_LOCATIVE_CONTEXT_TOKENS for token in immediate_neighbors):
+                return True
+
+        return False
 
     def _infer_category(self, content: str, *, nlp_result: dict[str, object] | None = None) -> str:
         candidate = str((nlp_result or {}).get("category", "")).strip().lower().replace(" ", "_")

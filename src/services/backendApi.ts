@@ -110,6 +110,15 @@ type BackendOfficialFeedPost = {
   risk_score?: number;
   keywords?: string[];
   is_safety_relevant?: boolean;
+  ai_signals?: string[] | null;
+  ai_scenario?: string | null;
+  ai_severity?: string | null;
+  ai_confidence?: number | null;
+  ai_is_rumor?: boolean | null;
+  ai_sentiment?: string | null;
+  location_resolution_method?: string;
+  ai_analysis_status?: string;
+  ai_location_names?: string[];
 };
 
 type BackendOfficialFeedSource = {
@@ -308,6 +317,15 @@ function mapOfficialFeedPost(post: BackendOfficialFeedPost): OfficialFeedPost {
     riskScore: post.risk_score ?? 0,
     keywords: post.keywords ?? [],
     isSafetyRelevant: post.is_safety_relevant ?? false,
+    aiSignals: post.ai_signals ?? null,
+    aiScenario: post.ai_scenario ?? null,
+    aiSeverity: post.ai_severity ?? null,
+    aiConfidence: post.ai_confidence ?? null,
+    aiIsRumor: post.ai_is_rumor ?? null,
+    aiSentiment: post.ai_sentiment ?? null,
+    locationResolutionMethod: (post.location_resolution_method ?? 'none') as OfficialFeedPost['locationResolutionMethod'],
+    aiAnalysisStatus: (post.ai_analysis_status ?? 'missing_key') as OfficialFeedPost['aiAnalysisStatus'],
+    aiLocationNames: post.ai_location_names ?? [],
   };
 }
 
@@ -432,17 +450,70 @@ function buildStatsFromIncidents(incidents: Incident[], riskScores: RiskScore[],
   };
 }
 
-function buildSnapshotFromLiveIncidents(liveIncidents: BackendIncident[]): BackendDashboardSnapshot {
-  const incidents = liveIncidents.map(mapIncident).sort(
+function mapOfficialFeedPostToIncident(post: OfficialFeedPost): Incident {
+  return {
+    id: `official-feed-${post.id}`,
+    source: "official_feed",
+    sourceInfo: post.sourceInfo,
+    sourceUrl: post.postUrl,
+    title: post.content,
+    description: post.content,
+    category: normalizeIncidentCategory(post.category),
+    severity: post.severity,
+    location: post.location,
+    locationName: post.locationName,
+    region: post.region,
+    sentimentScore: post.aiIsRumor ? -0.35 : -0.2,
+    riskScore: post.riskScore,
+    entities: [post.locationName, post.region].filter(Boolean),
+    keywords: Array.from(new Set([...(post.keywords ?? []), ...(post.signalTags ?? [])])),
+    status: "new",
+    createdAt: post.publishedAt,
+  };
+}
+
+function incidentSignature(incident: Incident): string {
+  const normalizedTitle = incident.title
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06ff]+/g, " ")
+    .trim();
+
+  if (normalizedTitle) {
+    return `title:${normalizedTitle}`;
+  }
+  if (incident.sourceUrl) {
+    return `source:${incident.sourceUrl}`;
+  }
+  return `id:${incident.id}`;
+}
+
+function mergeUniqueIncidents(baseIncidents: Incident[], additionalIncidents: Incident[]): Incident[] {
+  const seenSignatures = new Set(baseIncidents.map(incidentSignature));
+  const mergedIncidents = [...baseIncidents];
+
+  for (const incident of additionalIncidents) {
+    const signature = incidentSignature(incident);
+    if (seenSignatures.has(signature)) {
+      continue;
+    }
+    seenSignatures.add(signature);
+    mergedIncidents.push(incident);
+  }
+
+  return mergedIncidents;
+}
+
+function buildSnapshotFromIncidents(incidents: Incident[]): BackendDashboardSnapshot {
+  const sortedIncidents = [...incidents].sort(
     (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
   );
-  const riskScores = buildRiskScoresFromIncidents(incidents);
-  const trendData = buildTrendDataFromIncidents(incidents);
-  const alerts = buildAlertsFromIncidents(incidents);
-  const stats = buildStatsFromIncidents(incidents, riskScores, trendData);
+  const riskScores = buildRiskScoresFromIncidents(sortedIncidents);
+  const trendData = buildTrendDataFromIncidents(sortedIncidents);
+  const alerts = buildAlertsFromIncidents(sortedIncidents);
+  const stats = buildStatsFromIncidents(sortedIncidents, riskScores, trendData);
 
   return {
-    incidents,
+    incidents: sortedIncidents,
     alerts,
     riskScores,
     trendData,
@@ -573,8 +644,9 @@ function extractBackendErrorMessage(payload: Record<string, unknown>, status: nu
 }
 
 export async function fetchBackendDashboardSnapshot(): Promise<BackendDashboardSnapshot> {
-  const [liveIncidents, overview, incidentsPage, alerts, riskScores, trendData] = await Promise.all([
+  const [liveIncidents, officialFeedPosts, overview, incidentsPage, alerts, riskScores, trendData] = await Promise.all([
     requestBackend<BackendIncident[]>("/api/v1/incidents/live?limit=30").catch(() => []),
+    requestBackend<BackendOfficialFeedPost[]>("/api/v1/official-feeds?limit=24").catch(() => []),
     requestBackend<BackendOverview>("/api/v1/dashboard/overview"),
     requestBackend<{ items: BackendIncident[]; page: number; per_page: number; total: number }>("/api/v1/incidents?page=1&per_page=50"),
     requestBackend<BackendAlert[]>("/api/v1/alerts"),
@@ -582,8 +654,16 @@ export async function fetchBackendDashboardSnapshot(): Promise<BackendDashboardS
     requestBackend<BackendTrendPoint[]>("/api/v1/dashboard/trends"),
   ]);
 
-  if (liveIncidents.length > 0) {
-    return buildSnapshotFromLiveIncidents(liveIncidents);
+  const mergedLiveIncidents = mergeUniqueIncidents(
+    liveIncidents.map(mapIncident),
+    officialFeedPosts
+      .map(mapOfficialFeedPost)
+      .filter((post) => post.isSafetyRelevant)
+      .map(mapOfficialFeedPostToIncident),
+  );
+
+  if (mergedLiveIncidents.length > 0) {
+    return buildSnapshotFromIncidents(mergedLiveIncidents);
   }
 
   const mappedTrendData = trendData.map((point) => ({

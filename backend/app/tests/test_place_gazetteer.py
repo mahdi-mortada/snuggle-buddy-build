@@ -33,6 +33,19 @@ def test_place_gazetteer_deduplicates_aliases_to_same_place() -> None:
     assert first.place.lng == second.place.lng
 
 
+def test_place_gazetteer_skips_ambiguous_sour_without_locative_context() -> None:
+    match = place_gazetteer.match_text("نشر الجيش صور الاشتباك على وسائل التواصل.")
+
+    assert match is None
+
+
+def test_place_gazetteer_keeps_sour_with_locative_context() -> None:
+    match = place_gazetteer.match_text("غارة استهدفت مدينة صور جنوب لبنان.")
+
+    assert match is not None
+    assert match.place.name == "Tyre"
+
+
 def test_resolve_location_uses_gazetteer_before_region_fallback() -> None:
     resolution = asyncio.run(resolve_location(text_location="Jounieh"))
 

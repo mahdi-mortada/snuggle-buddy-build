@@ -16,6 +16,7 @@ from app.db.redis import redis_client
 from app.services.local_store import local_store
 from app.services.live_news import live_news_service
 from app.services.nlp_pipeline import nlp_pipeline
+from app.services.telegram_client import log_telegram_startup_status
 from app.services.websocket_manager import websocket_manager
 from app.workers.kafka_consumer import kafka_consumer
 
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
     global _news_refresh_task
     # Initialize storage
     local_store.initialize()
+    log_telegram_startup_status()
     # Connect databases
     await postgres_client.connect()
     await mongodb_client.connect()
