@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+const FEED_WINDOW_MS = 48 * 60 * 60 * 1000;
+
 function toTimestamp(value: string): number {
   const timestamp = new Date(value).getTime();
   if (!Number.isFinite(timestamp)) {
@@ -40,8 +42,8 @@ export default function Dashboard() {
 
     try {
       const [nextIncidents, nextOfficialFeeds] = await Promise.all([
-        fetchBackendLiveIncidents(30),
-        fetchBackendOfficialFeedPosts(24),
+        fetchBackendLiveIncidents(100),
+        fetchBackendOfficialFeedPosts(100),
       ]);
 
       setIncidents(nextIncidents);
@@ -98,7 +100,10 @@ export default function Dashboard() {
       telegram: feed,
     }));
 
-    return [...normalizedIncidents, ...normalizedTelegram].sort((left, right) => right.timestamp - left.timestamp);
+    const cutoff = Date.now() - FEED_WINDOW_MS;
+    return [...normalizedIncidents, ...normalizedTelegram]
+      .filter((item) => Number.isFinite(item.timestamp) && item.timestamp >= cutoff)
+      .sort((left, right) => right.timestamp - left.timestamp);
   }, [incidents, officialFeeds, dashboardIncidents]);
 
   const handleRetryMergedFeed = useCallback(() => {

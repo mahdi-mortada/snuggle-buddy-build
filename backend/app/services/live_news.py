@@ -132,16 +132,17 @@ class LiveNewsService:
         if not settings.live_news_enabled:
             return []
 
+        window_hours = 48
         requested_limit = limit or settings.live_news_limit
         now = datetime.now(UTC)
         if self._cached_at and now - self._cached_at < self._cache_ttl:
             return self._cache[:requested_limit]
 
         queries = [
-            "(site:reuters.com OR site:apnews.com OR site:lbci.com OR site:nna-leb.gov.lb OR site:today.lorientlejour.com OR site:naharnet.com OR site:mtv.com.lb OR site:aljadeed.tv OR site:aljazeera.net OR site:almayadeen.net) Lebanon when:1d",
-            "(site:lbci.com OR site:nna-leb.gov.lb OR site:today.lorientlejour.com OR site:naharnet.com) Beirut OR Lebanon when:1d",
-            "(site:reuters.com OR site:apnews.com) Lebanon security OR Lebanon politics OR Lebanon economy when:1d",
-            "(site:lbci.com OR site:nna-leb.gov.lb OR site:today.lorientlejour.com OR site:naharnet.com) Lebanon protest OR strike OR outage OR hospital when:1d",
+            "(site:reuters.com OR site:apnews.com OR site:lbci.com OR site:nna-leb.gov.lb OR site:today.lorientlejour.com OR site:naharnet.com OR site:mtv.com.lb OR site:aljadeed.tv OR site:aljazeera.net OR site:almayadeen.net) Lebanon when:2d",
+            "(site:lbci.com OR site:nna-leb.gov.lb OR site:today.lorientlejour.com OR site:naharnet.com) Beirut OR Lebanon when:2d",
+            "(site:reuters.com OR site:apnews.com) Lebanon security OR Lebanon politics OR Lebanon economy when:2d",
+            "(site:lbci.com OR site:nna-leb.gov.lb OR site:today.lorientlejour.com OR site:naharnet.com) Lebanon protest OR strike OR outage OR hospital when:2d",
         ]
 
         entries: list[NewsEntry] = []
@@ -159,7 +160,7 @@ class LiveNewsService:
                     continue
                 entries.extend(self._parse_feed(response.text))
 
-        incidents = self._build_incidents(entries, hours_window=settings.live_news_window_hours)
+        incidents = self._build_incidents(entries, hours_window=window_hours)
         self._cache = incidents
         self._cached_at = now
         return incidents[:requested_limit]

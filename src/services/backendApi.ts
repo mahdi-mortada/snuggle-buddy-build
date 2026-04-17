@@ -132,9 +132,31 @@ export type BackendDashboardSnapshot = {
 };
 
 const TOKEN_STORAGE_KEY = "crisisshield.backend.token";
+const LIVE_FEED_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 let tokenCache: string | null = null;
 let loginPromise: Promise<string> | null = null;
+
+function parseTimestamp(value: string): number {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.NaN;
+}
+
+function isWithinLiveFeedWindow(value: string): boolean {
+  const timestamp = parseTimestamp(value);
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+  return timestamp >= Date.now() - LIVE_FEED_WINDOW_MS;
+}
+
+function sortIncidentsNewestFirst(items: Incident[]): Incident[] {
+  return [...items].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+}
+
+function sortOfficialPostsNewestFirst(items: OfficialFeedPost[]): OfficialFeedPost[] {
+  return [...items].sort((left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime());
+}
 
 function getStoredToken(): string | null {
   if (tokenCache) return tokenCache;
@@ -433,8 +455,10 @@ function buildStatsFromIncidents(incidents: Incident[], riskScores: RiskScore[],
 }
 
 function buildSnapshotFromLiveIncidents(liveIncidents: BackendIncident[]): BackendDashboardSnapshot {
-  const incidents = liveIncidents.map(mapIncident).sort(
-    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+  const incidents = sortIncidentsNewestFirst(
+    liveIncidents
+      .map(mapIncident)
+      .filter((incident) => isWithinLiveFeedWindow(incident.createdAt)),
   );
   const riskScores = buildRiskScoresFromIncidents(incidents);
   const trendData = buildTrendDataFromIncidents(incidents);
@@ -574,9 +598,9 @@ function extractBackendErrorMessage(payload: Record<string, unknown>, status: nu
 
 export async function fetchBackendDashboardSnapshot(): Promise<BackendDashboardSnapshot> {
   const [liveIncidents, overview, incidentsPage, alerts, riskScores, trendData] = await Promise.all([
-    requestBackend<BackendIncident[]>("/api/v1/incidents/live?limit=30").catch(() => []),
+    requestBackend<BackendIncident[]>("/api/v1/incidents/live?limit=100").catch(() => []),
     requestBackend<BackendOverview>("/api/v1/dashboard/overview"),
-    requestBackend<{ items: BackendIncident[]; page: number; per_page: number; total: number }>("/api/v1/incidents?page=1&per_page=50"),
+    requestBackend<{ items: BackendIncident[]; page: number; per_page: number; total: number }>("/api/v1/incidents?page=1&per_page=100"),
     requestBackend<BackendAlert[]>("/api/v1/alerts"),
     requestBackend<BackendRiskScore[]>("/api/v1/risk/current"),
     requestBackend<BackendTrendPoint[]>("/api/v1/dashboard/trends"),
@@ -598,7 +622,11 @@ export async function fetchBackendDashboardSnapshot(): Promise<BackendDashboardS
   const riskTrend = previousPoint && currentPoint ? Number((currentPoint.riskScore - previousPoint.riskScore).toFixed(1)) : 0;
 
   return {
-    incidents: incidentsPage.items.map(mapIncident),
+    incidents: sortIncidentsNewestFirst(
+      incidentsPage.items
+        .map(mapIncident)
+        .filter((incident) => isWithinLiveFeedWindow(incident.createdAt)),
+    ),
     alerts: alerts.map(mapAlert),
     riskScores: riskScores.map(mapRiskScore),
     trendData: mappedTrendData,
@@ -619,9 +647,13 @@ export async function acknowledgeBackendAlert(alertId: string): Promise<Alert> {
   return mapAlert(alert);
 }
 
-export async function fetchBackendOfficialFeedPosts(limit = 24): Promise<OfficialFeedPost[]> {
+export async function fetchBackendOfficialFeedPosts(limit = 100): Promise<OfficialFeedPost[]> {
   const posts = await requestBackend<BackendOfficialFeedPost[]>(`/api/v1/official-feeds?limit=${limit}`);
-  return posts.map(mapOfficialFeedPost);
+  return sortOfficialPostsNewestFirst(
+    posts
+      .map(mapOfficialFeedPost)
+      .filter((post) => isWithinLiveFeedWindow(post.publishedAt)),
+  );
 }
 
 export async function fetchBackendOfficialFeedSources(): Promise<OfficialFeedSource[]> {
@@ -647,13 +679,15 @@ export async function deleteBackendOfficialFeedSource(sourceId: string): Promise
   return mapOfficialFeedSource(source);
 }
 
-export async function fetchBackendLiveIncidents(limit = 25): Promise<Incident[]> {
-  const numericLimit = Number.isFinite(limit) ? Math.trunc(limit) : 25;
-  const safeLimit = Math.min(50, Math.max(1, numericLimit || 25));
+export async function fetchBackendLiveIncidents(limit = 100): Promise<Incident[]> {
+  const numericLimit = Number.isFinite(limit) ? Math.trunc(limit) : 100;
+  const safeLimit = Math.min(100, Math.max(1, numericLimit || 100));
   const incidents = await requestBackend<BackendIncident[]>(`/api/v1/incidents/live?limit=${safeLimit}`);
-  return incidents
-    .map(mapIncident)
-    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  return sortIncidentsNewestFirst(
+    incidents
+      .map(mapIncident)
+      .filter((incident) => isWithinLiveFeedWindow(incident.createdAt)),
+  );
 }
 
 // ── Hate Speech Monitor ───────────────────────────────────────────────────────

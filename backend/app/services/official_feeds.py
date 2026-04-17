@@ -307,6 +307,7 @@ class OfficialFeedService:
 
         requested_limit = limit or settings.official_feed_limit
         now = datetime.now(UTC)
+        cutoff = now - timedelta(hours=48)
         if self._cached_at and now - self._cached_at < self._cache_ttl:
             return self._cache[:requested_limit]
 
@@ -319,22 +320,65 @@ class OfficialFeedService:
             headers={"User-Agent": "CrisisShield/1.0 (+local-dev)"},
         ) as client:
             for account in accounts:
-                try:
-                    response = await client.get(account.feed_url)
-                    response.raise_for_status()
-                except httpx.HTTPError:
-                    continue
-                posts.extend(self._parse_telegram_channel(account, response.text))
+                posts.extend(await self._fetch_posts_for_account(client, account, cutoff))
 
         posts.sort(key=lambda item: item.published_at, reverse=True)
-        deduped = self._dedupe_posts(posts)
+        recent_posts = [post for post in posts if post.published_at >= cutoff]
+        deduped = self._dedupe_posts(recent_posts)
         filtered: list[OfficialFeedPost] = []
         for post in deduped:
             if enriched := await self._process_post(post, keyword_matcher):
                 filtered.append(enriched)
+        filtered.sort(key=lambda item: item.published_at, reverse=True)
         self._cache = filtered
         self._cached_at = now
         return filtered[:requested_limit]
+
+    async def _fetch_posts_for_account(
+        self,
+        client: httpx.AsyncClient,
+        account: OfficialFeedAccount,
+        cutoff: datetime,
+    ) -> list[OfficialFeedPost]:
+        collected: list[OfficialFeedPost] = []
+        seen_post_urls: set[str] = set()
+        seen_before_values: set[int] = set()
+        next_before: int | None = None
+
+        for _ in range(30):
+            page_url = account.feed_url if next_before is None else f"{account.feed_url}?before={next_before}"
+            try:
+                response = await client.get(page_url)
+                response.raise_for_status()
+            except httpx.HTTPError:
+                break
+
+            page_posts, oldest_message_id = self._parse_telegram_channel_page(account, response.text)
+            if not page_posts:
+                break
+
+            fresh_posts: list[OfficialFeedPost] = []
+            for post in page_posts:
+                if post.post_url in seen_post_urls:
+                    continue
+                seen_post_urls.add(post.post_url)
+                fresh_posts.append(post)
+
+            if not fresh_posts:
+                break
+
+            collected.extend(fresh_posts)
+            oldest_page_timestamp = min(post.published_at for post in fresh_posts)
+            if oldest_page_timestamp < cutoff:
+                break
+
+            if oldest_message_id is None or oldest_message_id in seen_before_values:
+                break
+
+            seen_before_values.add(oldest_message_id)
+            next_before = oldest_message_id
+
+        return collected
 
     def _accounts(self) -> list[OfficialFeedAccount]:
         return [self._account_from_source(source) for source in source_registry_service.list_active_sources("telegram")]
@@ -366,7 +410,16 @@ class OfficialFeedService:
         )
 
     def _parse_telegram_channel(self, account: OfficialFeedAccount, html_text: str) -> list[OfficialFeedPost]:
+        posts, _ = self._parse_telegram_channel_page(account, html_text)
+        return posts
+
+    def _parse_telegram_channel_page(
+        self,
+        account: OfficialFeedAccount,
+        html_text: str,
+    ) -> tuple[list[OfficialFeedPost], int | None]:
         posts: list[OfficialFeedPost] = []
+        oldest_message_id: int | None = None
         pattern = re.compile(
             r'<div class="tgme_widget_message_wrap js-widget_message_wrap">(?P<block>.*?)</div></div>(?=(?:<div class="tgme_widget_message_wrap js-widget_message_wrap">)|(?:\s*</section>))',
             flags=re.DOTALL,
@@ -378,6 +431,11 @@ class OfficialFeedService:
             date_match = re.search(r'<time[^>]+datetime="([^"]+)"', block)
             text_match = re.search(r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>', block, flags=re.DOTALL)
             link_match = re.search(r'<a class="tgme_widget_message_date" href="([^"]+)"', block)
+
+            if post_match:
+                message_id = self._extract_message_id(post_match.group(1))
+                if message_id is not None:
+                    oldest_message_id = message_id if oldest_message_id is None else min(oldest_message_id, message_id)
 
             if not post_match or not date_match or not link_match:
                 continue
@@ -432,10 +490,7 @@ class OfficialFeedService:
                 )
             )
 
-            if len(posts) >= 12:
-                break
-
-        return posts
+        return posts, oldest_message_id
 
     async def _process_post(self, post: OfficialFeedPost, keyword_matcher: KeywordMatcher) -> OfficialFeedPost | None:
         nlp_result = await nlp_pipeline.process(
@@ -472,6 +527,15 @@ class OfficialFeedService:
         if parsed.tzinfo is None:
             return parsed.replace(tzinfo=UTC)
         return parsed.astimezone(UTC)
+
+    def _extract_message_id(self, post_identifier: str) -> int | None:
+        if "/" not in post_identifier:
+            return None
+        _, raw_id = post_identifier.rsplit("/", 1)
+        try:
+            return int(raw_id)
+        except ValueError:
+            return None
 
     def _extract_tags(self, content: str) -> list[str]:
         lowered = content.lower()

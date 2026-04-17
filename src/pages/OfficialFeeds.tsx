@@ -24,8 +24,20 @@ import { ExternalLink, RefreshCw, Radio, Send } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
+const FEED_WINDOW_MS = 48 * 60 * 60 * 1000;
+const INITIAL_VISIBLE_COUNT_PER_CHANNEL = 3;
+const VISIBLE_COUNT_STEP = 3;
+
 function platformLabel(platform: OfficialFeedPost['platform']): string {
   return platform === 'telegram' ? 'Telegram' : 'X';
+}
+
+function isWithinLast48Hours(timestamp: string): boolean {
+  const value = new Date(timestamp).getTime();
+  if (!Number.isFinite(value)) {
+    return false;
+  }
+  return value >= Date.now() - FEED_WINDOW_MS;
 }
 
 export default function OfficialFeeds() {
@@ -40,6 +52,7 @@ export default function OfficialFeeds() {
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedRegionIds, setSelectedRegionIds] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState('');
+  const [visibleCountsByChannel, setVisibleCountsByChannel] = useState<Record<string, number>>({});
   const debouncedKeyword = useDebouncedValue(keywordInput, 250);
 
   const loadFeedData = async (showToast = false) => {
@@ -47,13 +60,16 @@ export default function OfficialFeeds() {
     setError(null);
     try {
       const [nextPosts, nextSources] = await Promise.all([
-        fetchBackendOfficialFeedPosts(24),
+        fetchBackendOfficialFeedPosts(1000),
         fetchBackendOfficialFeedSources(),
       ]);
-      setPosts(nextPosts);
+      const recentPosts = nextPosts
+        .filter((post) => isWithinLast48Hours(post.publishedAt))
+        .sort((left, right) => new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime());
+      setPosts(recentPosts);
       setSources(sortSources(nextSources));
       if (showToast) {
-        toast.success(`Official feeds refreshed: ${nextPosts.length} posts loaded`);
+        toast.success(`Official feeds refreshed: ${recentPosts.length} posts loaded`);
       }
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : 'Unable to load official outlet feeds.';
@@ -120,6 +136,58 @@ export default function OfficialFeeds() {
   const publishers = Object.keys(groupedPosts).length;
   const telegramCount = posts.filter((post) => post.platform === 'telegram').length;
   const filteredCount = filteredPosts.length;
+
+  useEffect(() => {
+    setVisibleCountsByChannel((currentCounts) => {
+      const nextCounts: Record<string, number> = {};
+
+      for (const [publisherName, publisherPosts] of Object.entries(groupedPosts)) {
+        const firstPost = publisherPosts[0]?.post;
+        const channelKey = firstPost?.sourceId || firstPost?.accountHandle || publisherName;
+        const channelTotal = publisherPosts.length;
+        const collapsedCount = Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, channelTotal);
+        const currentCount = currentCounts[channelKey];
+
+        if (currentCount === undefined) {
+          nextCounts[channelKey] = collapsedCount;
+          continue;
+        }
+
+        nextCounts[channelKey] = Math.min(Math.max(currentCount, collapsedCount), channelTotal);
+      }
+
+      return nextCounts;
+    });
+  }, [groupedPosts]);
+
+  const showMorePostsForChannel = (channelKey: string, totalCount: number) => {
+    setVisibleCountsByChannel((currentCounts) => {
+      const current = currentCounts[channelKey] ?? Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, totalCount);
+      return {
+        ...currentCounts,
+        [channelKey]: Math.min(totalCount, current + VISIBLE_COUNT_STEP),
+      };
+    });
+  };
+
+  const showLessPostsForChannel = (channelKey: string, totalCount: number) => {
+    setVisibleCountsByChannel((currentCounts) => {
+      const collapsedCount = Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, totalCount);
+      const current = currentCounts[channelKey] ?? collapsedCount;
+      return {
+        ...currentCounts,
+        [channelKey]: Math.max(collapsedCount, current - VISIBLE_COUNT_STEP),
+      };
+    });
+  };
+
+  const collapseChannelPosts = (channelKey: string, totalCount: number) => {
+    setVisibleCountsByChannel((currentCounts) => ({
+      ...currentCounts,
+      [channelKey]: Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, totalCount),
+    }));
+  };
+
   const clearFilters = () => {
     setSelectedSources([]);
     setSelectedRegionIds([]);
@@ -248,15 +316,25 @@ export default function OfficialFeeds() {
         ) : null}
 
         <div className="space-y-6">
-          {Object.entries(groupedPosts).map(([publisherName, publisherPosts]) => (
+          {Object.entries(groupedPosts).map(([publisherName, publisherPosts]) => {
+            const firstPost = publisherPosts[0]?.post;
+            const channelKey = firstPost?.sourceId || firstPost?.accountHandle || publisherName;
+            const totalInChannel = publisherPosts.length;
+            const collapsedCount = Math.min(INITIAL_VISIBLE_COUNT_PER_CHANNEL, totalInChannel);
+            const currentVisibleCount = visibleCountsByChannel[channelKey] ?? collapsedCount;
+            const visibleChannelPosts = publisherPosts.slice(0, currentVisibleCount);
+            const hasMoreInChannel = currentVisibleCount < totalInChannel;
+            const canShowLessInChannel = currentVisibleCount > collapsedCount;
+
+            return (
             <section key={publisherName} className="space-y-3">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-foreground">{publisherName}</h2>
-                <span className="rounded-full bg-secondary/60 px-2 py-1 text-[11px] text-muted-foreground">{publisherPosts.length} posts</span>
+                <span className="rounded-full bg-secondary/60 px-2 py-1 text-[11px] text-muted-foreground">{totalInChannel} posts</span>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                {publisherPosts.map((preparedPost) => {
+                {visibleChannelPosts.map((preparedPost) => {
                   const { post, matchedRegions } = preparedPost;
                   const sourceUrl = resolveSourceUrl(post);
 
@@ -351,8 +429,43 @@ export default function OfficialFeeds() {
                   );
                 })}
               </div>
+              <div className="glass-panel border border-border/50 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {visibleChannelPosts.length} of {totalInChannel} posts.
+                    {!hasMoreInChannel ? ' No more posts to show.' : ''}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => showLessPostsForChannel(channelKey, totalInChannel)}
+                      disabled={!canShowLessInChannel}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Show less
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => collapseChannelPosts(channelKey, totalInChannel)}
+                      disabled={currentVisibleCount <= collapsedCount}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Collapse
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => showMorePostsForChannel(channelKey, totalInChannel)}
+                      disabled={!hasMoreInChannel}
+                      className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Show more
+                    </button>
+                  </div>
+                </div>
+              </div>
             </section>
-          ))}
+          );
+        })}
         </div>
       </div>
     </DashboardLayout>

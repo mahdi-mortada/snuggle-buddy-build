@@ -120,10 +120,10 @@ class Settings(BaseSettings):
 
     # ── Data Ingestion ────────────────────────────────────────────────────────
     live_news_enabled: bool = True
-    live_news_window_hours: int = 24
-    live_news_limit: int = 25
+    live_news_window_hours: int = 48
+    live_news_limit: int = 100
     official_feeds_enabled: bool = True
-    official_feed_limit: int = 24
+    official_feed_limit: int = 100
     official_feed_filter_keywords: str = ""
     official_feed_extra_channels_json: str = ""
     telegram_api_id: int = 0
