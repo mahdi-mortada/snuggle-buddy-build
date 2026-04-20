@@ -787,8 +787,6 @@ export type HateSpeechReply = {
   sourceUrl: string;
 };
 
-export type HateSpeechSortOption = 'priority' | 'score' | 'engagement' | 'velocity' | 'recent';
-
 type BackendHateSpeechPost = {
   id: string;
   platform: string;
@@ -963,10 +961,6 @@ export async function fetchHateSpeechPostsByTrend(
     `/api/v1/hate-speech/trend/${encodeURIComponent(trendName)}?limit=${limit}`,
   );
   return posts.map(mapHateSpeechPost);
-}
-
-export async function triggerHateSpeechScan(): Promise<Record<string, unknown>> {
-  return requestBackend<Record<string, unknown>>("/api/v1/hate-speech/scan", { method: "POST" });
 }
 
 export async function reviewHateSpeechPost(
