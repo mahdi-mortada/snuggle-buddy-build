@@ -14,16 +14,16 @@ export type Sect =
   | 'mixed';
 
 export const SECT_COLORS: Record<Sect, string> = {
-  maronite:        '#CC2222',
-  greek_orthodox:  '#E07030',
-  greek_catholic:  '#D4AA00',
-  armenian:        '#9B8B7A',
-  other_christian: '#3ABFBF',
-  shia:            '#1A8A1A',
-  sunni:           '#2255CC',
-  alawite:         '#8B0099',
-  druze:           '#EE20A0',
-  mixed:           '#778899',
+  maronite:        '#A84040',
+  greek_orthodox:  '#B87248',
+  greek_catholic:  '#A89040',
+  armenian:        '#8A7A6E',
+  other_christian: '#4A9090',
+  shia:            '#2A6E2A',
+  sunni:           '#3A5A9A',
+  alawite:         '#6A3A7A',
+  druze:           '#A84488',
+  mixed:           '#606870',
 };
 
 export const SECT_LABELS: Record<Sect, string> = {

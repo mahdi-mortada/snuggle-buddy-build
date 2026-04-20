@@ -707,7 +707,7 @@ export default function IncidentMap() {
           const color = SECT_COLORS[sect] ?? '#778899';
           return {
             fillColor: color,
-            fillOpacity: 0.65,
+            fillOpacity: 0.45,
             color: 'rgba(255,255,255,0.22)',
             weight: 0.35,
             opacity: 0.7,
