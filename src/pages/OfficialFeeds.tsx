@@ -403,21 +403,7 @@ export default function OfficialFeeds() {
                         {renderHighlightedText(post.content, debouncedKeyword)}
                       </p>
 
-                      <LocationSummary post={post} />
 
-                      {matchedRegions.length > 0 ? (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {matchedRegions.slice(0, 4).map((region) => (
-                            <Badge
-                              key={`${post.id}-region-${region.id}`}
-                              variant="outline"
-                              className="border-primary/20 bg-primary/5 text-[11px] text-primary/90"
-                            >
-                              {region.label}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : null}
 
                       {post.primaryKeyword ? (
                         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -520,28 +506,6 @@ function sentimentColor(sentiment: string): string {
   }
 }
 
-function LocationSummary({ post }: { post: OfficialFeedPost }): ReactNode {
-  const regionLabel = post.region?.trim() || null;
-  const showRegionLabel = Boolean(regionLabel) && regionLabel?.toLowerCase() !== 'beirut';
-
-  if (!showRegionLabel && !post.isSafetyRelevant) return null;
-
-  return (
-    <div className="mt-4 flex flex-wrap items-center gap-2">
-      {showRegionLabel ? (
-        <span className="rounded-full border border-border/50 bg-secondary/50 px-2.5 py-1 text-[11px] text-muted-foreground">
-          Region: {regionLabel}
-        </span>
-      ) : null}
-      {post.isSafetyRelevant ? (
-        <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] text-primary/90">
-          Risk {Math.round(post.riskScore)}/100
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 function IntelligenceSection({ post }: { post: OfficialFeedPost }): ReactNode {
   if (!post.aiScenario) return null;
 
@@ -553,6 +517,12 @@ function IntelligenceSection({ post }: { post: OfficialFeedPost }): ReactNode {
   const sentiment = post.aiSentiment
     ? post.aiSentiment.charAt(0).toUpperCase() + post.aiSentiment.slice(1)
     : null;
+
+  // Location: prefer AI-extracted names, fall back to locationName from backend
+  const aiResolved = post.locationResolutionMethod === 'ai' && post.aiLocationNames.length > 0;
+  const locationDisplay = aiResolved
+    ? post.aiLocationNames.join(', ')
+    : (post.locationName?.trim() || post.region?.trim() || null);
 
   return (
     <div className="mt-4 border-t border-border/30 pt-3">
@@ -584,10 +554,12 @@ function IntelligenceSection({ post }: { post: OfficialFeedPost }): ReactNode {
             {status}
           </span>
         </span>
-        {post.locationResolutionMethod === 'ai' && post.aiLocationNames.length > 0 ? (
+        {locationDisplay ? (
           <span className="text-[11px] text-slate-400">
             Location:{' '}
-            <span className="text-emerald-300">{post.aiLocationNames.join(', ')}</span>
+            <span className={aiResolved ? 'text-emerald-300' : 'text-slate-300'}>
+              {locationDisplay}
+            </span>
           </span>
         ) : null}
       </div>

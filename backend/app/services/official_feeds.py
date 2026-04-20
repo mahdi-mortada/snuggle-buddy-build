@@ -733,9 +733,6 @@ class OfficialFeedService:
                     display_name = loc
                 if display_name not in ai_location_names:
                     ai_location_names.append(display_name)
-        if place_match is None:
-            place_match = place_gazetteer.match_text(post.content)
-
         location_resolution_method = "ai" if ai_matched else "fallback"
 
         if place_match is not None:

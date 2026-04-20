@@ -6,15 +6,14 @@ CrisisShield (internal name: **AMAN**) is a full-stack crisis monitoring and int
 
 ## Table of Contents
 
-0. [Team Workflow](#0-team-workflow)
 1. [Architecture Overview](#1-architecture-overview)
 2. [Tech Stack](#2-tech-stack)
 3. [Repository Layout](#3-repository-layout)
-4. [Section 10: Infrastructure & Deployment](#4-section-10-infrastructure--deployment)
-   - [10.1 Docker Compose Services](#41-docker-compose-services)
-   - [10.2 Environment Variables](#42-environment-variables)
-   - [10.3 Backend Dockerfile](#43-backend-dockerfile)
-   - [10.4 Frontend Dockerfile](#44-frontend-dockerfile)
+4. [Infrastructure & Deployment](#4-infrastructure--deployment)
+   - [Docker Compose Services](#41-docker-compose-services)
+   - [Environment Variables](#42-environment-variables)
+   - [Backend Dockerfile](#43-backend-dockerfile)
+   - [Frontend Dockerfile](#44-frontend-dockerfile)
 5. [Quick Start — Local Mode (No Docker)](#5-quick-start--local-mode-no-docker)
 6. [Full Docker Stack](#6-full-docker-stack)
 7. [Database Schema](#7-database-schema)
@@ -27,26 +26,7 @@ CrisisShield (internal name: **AMAN**) is a full-stack crisis monitoring and int
 14. [Celery Task Schedule](#14-celery-task-schedule)
 15. [Running Tests](#15-running-tests)
 16. [Troubleshooting](#16-troubleshooting)
-17. [Recent Updates](#17-recent-updates)
-
----
-
-## 0. Team Workflow
-
-Follow [CONTRIBUTING.md](CONTRIBUTING.md) for branch, PR, commit, and conflict rules.
-
-To block direct pushes to `main` locally, run once:
-
-```bash
-./scripts/setup-git-workflow.sh https://github.com/mahdi-mortada/snuggle-buddy-build.git
-```
-
-Also configure GitHub branch protection for `main`:
-
-- Require pull requests before merging
-- Require at least 1 approval
-- Restrict direct pushes to `main`
-- Require status checks to pass
+17. [Team Workflow](#17-team-workflow)
 
 ---
 
@@ -219,7 +199,7 @@ snuggle-buddy-build-main/
 
 ---
 
-## 4. Section 10: Infrastructure & Deployment
+## 4. Infrastructure & Deployment
 
 ### 4.1 Docker Compose Services
 
@@ -231,7 +211,7 @@ snuggle-buddy-build-main/
 | `mongodb` | `mongo:7` | 27018 | 27017 | Raw unstructured documents (TTL 90 d) |
 | `elasticsearch` | `elasticsearch:8.12.2` | 9201 | 9200 | Full-text search, Arabic analyzer, single-node |
 | `redis` | `redis:7-alpine` | 6380 | 6379 | Cache + Celery broker + alert rate limiting |
-| `zookeeper` | `cp-zookeeper:7.5.3` | 2182 | 2181 | Kafka coordination (required by Kafka) |
+| `zookeeper` | `cp-zookeeper:7.5.3` | 2182 | 2181 | Kafka coordination |
 | `kafka` | `cp-kafka:7.5.3` | 9093, 29093 | 9092, 29092 | Real-time incident streaming pipeline |
 | `backend` | `./backend` | 8010 | 8000 | FastAPI app with hot reload |
 | `celery-worker` | `./backend` | — | — | Celery worker, concurrency=4 |
@@ -253,16 +233,16 @@ snuggle-buddy-build-main/
 **Service startup order** (enforced by `depends_on` + `condition: service_healthy`):
 
 ```
-postgres, mongodb, elasticsearch, redis (start in parallel)
+postgres, mongodb, elasticsearch, redis  (parallel)
         ↓
     kafka (after zookeeper)
         ↓
-backend, celery-worker, celery-beat (after all DBs + kafka)
+backend, celery-worker, celery-beat  (after all DBs + kafka)
         ↓
-        frontend, grafana (after backend / prometheus)
+frontend, grafana  (after backend / prometheus)
 ```
 
-**Port note:** Ports are offset from the standard values (e.g., PostgreSQL on 5433 instead of 5432) to avoid conflicts with locally installed services. Override in `docker-compose.override.yml` if needed.
+> **Port note:** Ports are offset from standard values (e.g. PostgreSQL on 5433 instead of 5432) to avoid conflicts with locally installed services. Override in `docker-compose.override.yml` if needed.
 
 ---
 
@@ -321,7 +301,7 @@ Copy `.env.example` to the project root (frontend) and `backend/.env.example` to
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_API_KEY` | *(empty)* | Anthropic API key for the LangChain recommendation engine. When absent, the system falls back to templated recommendations. Get from [console.anthropic.com](https://console.anthropic.com/) |
+| `CLAUDE_API_KEY` | *(empty)* | Anthropic API key for AI-generated alert recommendations. When absent, falls back to templated recommendations. Get from [console.anthropic.com](https://console.anthropic.com/) |
 
 **Email Notifications (CRITICAL+ alerts)**
 
@@ -397,19 +377,13 @@ Copy `.env.example` to the project root (frontend) and `backend/.env.example` to
 | `LIVE_NEWS_LIMIT` | `25` | Maximum number of live news stories to return |
 | `OFFICIAL_FEEDS_ENABLED` | `true` | Enable official Telegram/social channel feeds |
 | `OFFICIAL_FEED_LIMIT` | `24` | Maximum number of feed posts to return |
-| `OFFICIAL_FEED_EXTRA_CHANNELS_JSON` | *(empty)* | JSON array of extra channel objects (see Official Feeds section) |
+| `OFFICIAL_FEED_EXTRA_CHANNELS_JSON` | *(empty)* | JSON array of extra channel objects |
 
 **CORS**
 
 | Variable | Default | Description |
 |---|---|---|
-| `CORS_ORIGINS` | `["http://127.0.0.1:8080","http://localhost:8080","http://127.0.0.1:3000","http://localhost:3000"]` | JSON array of allowed frontend origins |
-
-**Local Dev Fallback**
-
-| Variable | Default | Description |
-|---|---|---|
-| `LOCAL_DATA_FILE` | `backend/data/local_state.json` | Path to the JSON state file used when `STORAGE_MODE=local` |
+| `CORS_ORIGINS` | `["http://localhost:8080","http://localhost:3000"]` | JSON array of allowed frontend origins |
 
 ---
 
@@ -423,24 +397,19 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # System dependencies:
-#   build-essential  — compiles Python extensions (asyncpg, psycopg2, etc.)
+#   build-essential  — compiles Python extensions (asyncpg, etc.)
 #   libpq-dev        — PostgreSQL client library (required by asyncpg)
 #   curl             — used by Docker HEALTHCHECK
-#   git              — some pip packages install from git
 #   libgomp1         — OpenMP (required by XGBoost and LightGBM)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev curl git libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies first (maximises Docker layer cache reuse)
 COPY requirements.docker.txt .
 RUN pip install --no-cache-dir --retries 10 --timeout 120 -r requirements.docker.txt
 
-# Copy application source after dependencies (so code changes don't bust the pip cache)
 COPY . .
 
-# Development command — hot reload is ON.
-# docker-compose overrides CMD for celery-worker and celery-beat services.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 ```
 
@@ -449,7 +418,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload
 | File | Purpose |
 |---|---|
 | `requirements.txt` | Full ML stack including spaCy, HuggingFace Transformers, Prophet, XGBoost. Used for local development and production deployments that need the complete NLP/ML pipeline |
-| `requirements.docker.txt` | Trimmed set that excludes heavy ML packages. Services that do not need the NLP pipeline (e.g. celery-beat) use this to keep image size manageable. The application falls back gracefully if models are unavailable |
+| `requirements.docker.txt` | Trimmed set that excludes heavy ML packages. The application falls back gracefully if models are unavailable |
 
 **spaCy model downloads** (run manually or add to Dockerfile for production):
 
@@ -474,37 +443,19 @@ celery-beat:
 
 **File:** `Dockerfile.frontend`
 
-The frontend uses a multi-stage build with three stages:
+The frontend uses a multi-stage build:
 
-#### Stage 1 — Development (`dev`)
-
-```dockerfile
-FROM node:20-alpine AS dev
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci                             # clean install, respects package-lock.json
-COPY . .
-EXPOSE 3000
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
-```
-
-Used for local hot-reload development inside Docker. Vite serves files with HMR on port 3000.
-
-#### Stage 2 — Build (`build`)
-
+**Stage 1 — Build**
 ```dockerfile
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build                      # Vite production build → /app/dist
+RUN npm run build    # Vite production build → /app/dist
 ```
 
-Compiles TypeScript, bundles all assets, and tree-shakes to the smallest possible output.
-
-#### Stage 3 — Production (`prod`)
-
+**Stage 2 — Production**
 ```dockerfile
 FROM nginx:alpine AS prod
 COPY --from=build /app/dist /usr/share/nginx/html
@@ -513,9 +464,7 @@ EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
-Serves the static build through Nginx. All `/api/` and `/ws/` requests are reverse-proxied to the backend. All other routes serve `index.html` for client-side routing.
-
-**Nginx proxy rules (infrastructure/nginx/nginx.conf):**
+Nginx reverse-proxies `/api/` and `/ws/` to the backend and serves `index.html` for all other routes (SPA fallback).
 
 | Location | Proxied To | Notes |
 |---|---|---|
@@ -524,27 +473,16 @@ Serves the static build through Nginx. All `/api/` and `/ws/` requests are rever
 | `/health` | `backend:8000` | Direct proxy for health checks |
 | `/` (all else) | `dist/index.html` | SPA fallback for React Router |
 
-**Production build commands:**
-
-```bash
-# Build for production (outputs to dist/)
-npm run build
-
-# Preview production build locally
-npm run preview
-```
-
 ---
 
 ## 5. Quick Start — Local Mode (No Docker)
 
-This mode runs entirely without databases. The backend uses a JSON file as its data store and seeds 505 realistic incidents automatically on first run.
+This mode runs entirely without databases. The backend uses an in-memory store and seeds 505 realistic incidents automatically on first run.
 
 ### Prerequisites
 
-- Python 3.11+ or Python 3.12+
-- Node.js 18+ (or use the portable runtime in `.tools/`)
-- pip
+- Python 3.11+
+- Node.js 18+
 
 ### Step 1 — Install backend dependencies
 
@@ -569,27 +507,11 @@ cd backend
 STORAGE_MODE=local uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Startup output confirms local mode and seed counts:
-
-```
-PostgreSQL connection failed (non-fatal in local mode): ...
-MongoDB connection failed (non-fatal in local mode): ...
-...
-Application startup complete.
-Uvicorn running on http://127.0.0.1:8000
-```
-
 ### Step 4 — Install and start the frontend
 
 ```bash
 npm install
 npm run dev
-```
-
-Or use the PowerShell convenience script from the project root:
-
-```powershell
-.\scripts\run-local.ps1
 ```
 
 ### Step 5 — Open the app
@@ -601,12 +523,7 @@ Or use the PowerShell convenience script from the project root:
 | API health | http://127.0.0.1:8000/health |
 | API docs (Swagger) | http://127.0.0.1:8000/docs |
 
-### Default credentials
-
-| Field | Value |
-|---|---|
-| Email | `admin@crisisshield.dev` |
-| Password | `admin12345` |
+**Default credentials:** `admin@crisisshield.dev` / `admin12345`
 
 ---
 
@@ -635,11 +552,9 @@ cp backend/.env.example backend/.env
 docker-compose up --build
 ```
 
-First run takes 5–10 minutes to pull images and build the backend (ML dependencies are large). Subsequent starts are fast because Docker caches layers.
+First run takes 5–10 minutes to pull images and build the backend. Subsequent starts are fast.
 
 ### Step 3 — Run database migrations
-
-After the `postgres` container is healthy, run Alembic to create all tables:
 
 ```bash
 docker-compose exec backend alembic upgrade head
@@ -647,13 +562,10 @@ docker-compose exec backend alembic upgrade head
 
 ### Step 4 — Seed the database (optional)
 
-The backend auto-seeds 505 incidents on startup when the incidents table is empty. To re-seed manually:
+The backend auto-seeds 505 incidents on startup when the incidents table is empty. To re-seed or populate PostgreSQL manually:
 
 ```bash
-docker-compose exec backend python -c "
-from app.services.seed_data import build_seed_incidents
-print(f'Seed data: {len(build_seed_incidents())} incidents generated')
-"
+docker-compose exec backend python /app/seed_pg.py
 ```
 
 ### Service URLs
@@ -668,17 +580,20 @@ print(f'Seed data: {len(build_seed_incidents())} incidents generated')
 | MLflow | http://localhost:5001 | — |
 | Kafka | localhost:29093 (host access) | — |
 
-### Stop all services
+### Useful commands
 
 ```bash
-docker-compose down          # stop and remove containers
-docker-compose down -v       # also remove all volumes (wipes all data)
-```
+# Stop all services (keep data)
+docker-compose down
 
-### Rebuild a single service
+# Stop and wipe all data
+docker-compose down -v
 
-```bash
+# Rebuild a single service after code changes
 docker-compose up --build backend
+
+# View logs for a service
+docker-compose logs -f backend
 ```
 
 ---
@@ -699,8 +614,7 @@ All tables are created by Alembic migration `backend/alembic/versions/001_initia
 | region_type | TEXT | `governorate` or `district` |
 | parent_id | TEXT | FK → parent governorate |
 | geom | geometry(POLYGON,4326) | PostGIS polygon for ST_Within queries |
-| centroid | geography(POINT,4326) | |
-| centroid_lat / lng | FLOAT | Precomputed from centroid |
+| centroid_lat / lng | FLOAT | Precomputed centroid coordinates |
 
 The 8 canonical governorate names used throughout the system:
 
@@ -734,11 +648,10 @@ The 8 canonical governorate names used throughout the system:
 | verification_status | TEXT | `unverified`, `reviewed`, `confirmed`, `rejected` |
 | confidence_score | FLOAT | NLP classification confidence 0–1 |
 | reviewed_by | UUID FK→users | Analyst who reviewed this incident |
-| reviewed_at | TIMESTAMPTZ | |
 | analyst_notes | TEXT | Free-text analyst comments |
 | created_at / updated_at | TIMESTAMPTZ | |
 
-**Incident category taxonomy (mandatory enum):**
+**Incident category taxonomy:**
 
 `violence` · `protest` · `armed_conflict` · `terrorism` · `natural_disaster` · `infrastructure` · `health` · `cyber` · `other`
 
@@ -746,7 +659,6 @@ The 8 canonical governorate names used throughout the system:
 
 | Column | Type | Notes |
 |---|---|---|
-| id | TEXT PK | |
 | region | TEXT | Lebanon region name |
 | overall_score | FLOAT | 0–100 composite score |
 | sentiment_component | FLOAT | Weighted sentiment input |
@@ -756,49 +668,42 @@ The 8 canonical governorate names used throughout the system:
 | geospatial_component | FLOAT | Weighted density input |
 | confidence | FLOAT | 0–1 based on incident count |
 | is_anomalous | BOOL | Isolation Forest flag |
-| anomaly_score | FLOAT | Raw anomaly score |
 | escalation_probability | FLOAT | XGBoost escalation probability 0–1 |
-| incident_count_24h | INT | |
 | calculated_at | TIMESTAMPTZ | |
 
 **`alerts`** — Generated alerts
 
 | Column | Type | Notes |
 |---|---|---|
-| id | TEXT PK | |
 | alert_type | TEXT | `threshold_breach`, `escalation`, `anomaly`, `prediction`, `velocity` |
 | severity | TEXT | `info`, `warning`, `critical`, `emergency` |
 | title / message / recommendation | TEXT | |
 | region | TEXT | |
 | is_acknowledged | BOOL | |
-| acknowledged_by | UUID FK→users | |
-| acknowledged_at | TIMESTAMPTZ | |
 | notification_channels | TEXT[] | `email`, `sms`, `webhook`, `dashboard` |
 | created_at | TIMESTAMPTZ | |
 
 ### MongoDB
 
-**Collection: `raw_data`** — Original unprocessed documents from all sources
+**Collection: `raw_data`** — Original unprocessed documents
 
-- TTL index on `collected_at`: documents auto-expire after **90 days**
+- TTL index on `collected_at`: auto-expire after **90 days**
 - Index on `{ source: 1, collected_at: -1 }` for source-time queries
-- Index on `{ processed: 1 }` for pipeline pick-up
 
 ### Elasticsearch
 
 **Index: `incidents`** with Arabic analyzer:
 
-- Custom analyzer chain: `standard tokenizer → lowercase → arabic_normalization → arabic_stop → arabic_stemmer`
-- Text fields (`title`, `description`) use `arabic_english_analyzer` for bilingual search
+- Custom chain: `standard tokenizer → lowercase → arabic_normalization → arabic_stop → arabic_stemmer`
+- Text fields use `arabic_english_analyzer` for bilingual search
 - Keyword fields (`category`, `severity`, `region`) for exact filtering
-- `created_at` as `date` for time range queries
 
 ### Redis Key Schema
 
 | Key Pattern | Type | Purpose |
 |---|---|---|
-| `config:risk_weights` | Hash | `{sentiment, volume, keyword, behavior, geospatial}` — float weights, sum to 1.0 |
-| `config:alert_thresholds` | Hash | `{info, warning, critical, emergency}` — score thresholds |
+| `config:risk_weights` | Hash | Float weights (sentiment, volume, keyword, behavior, geospatial), sum to 1.0 |
+| `config:alert_thresholds` | Hash | Score thresholds per severity |
 | `config:threat_keywords` | Hash | keyword → float weight (40 Arabic + English terms) |
 | `alert_rate:{region}:{severity}` | TTL key | Rate-limiting: expires after `ALERT_RATE_LIMIT_SECONDS` |
 | `cache:recommendation:{region}:{severity}:{score}` | String | Cached AI recommendation text, TTL 3600 s |
@@ -811,27 +716,23 @@ The 8 canonical governorate names used throughout the system:
 
 **File:** `backend/app/services/nlp_pipeline.py`
 
-All models are **lazy-loaded once at application startup** via `nlp_pipeline.initialize()` called from `main.py` lifespan. Per-request loading is not used — model objects are reused.
-
-### Pipeline Steps
+All models are lazy-loaded once at application startup via `nlp_pipeline.initialize()`. Per-request loading is not used.
 
 | Step | Library | Description | Fallback |
 |---|---|---|---|
-| 1. Language detection | `langdetect` | Identifies `ar` (Arabic), `en` (English), or `other` | Default to `en` |
-| 2. Arabic normalization | Custom | Strip tashkeel diacritics, normalize alef variants (أإآ→ا), ya (ي→ى), ta marbuta (ة→ه) | Skip if English |
-| 3. Named Entity Recognition | `spaCy` | `en_core_web_lg` for English; `xx_ent_wiki_sm` for Arabic/multilingual. Extracts PERSON, ORG, GPE, EVENT, DATE | Return empty entities |
-| 4. Sentiment analysis | HuggingFace | `cardiffnlp/twitter-roberta-base-sentiment-latest` (EN); `aubmindlab/bert-base-arabertv2` (AR). Returns score −1.0 to +1.0 | Keyword-based fallback score |
-| 5. Topic classification | HuggingFace | `facebook/bart-large-mnli` zero-shot classification against the 9 incident categories | Keyword heuristic fallback |
-| 6. Threat keyword scoring | Redis | Matches text against the `config:threat_keywords` hash. Returns sorted keyword list and weighted aggregate score 0–100 | Score = 0 |
+| 1. Language detection | `langdetect` | Identifies `ar`, `en`, or `other` | Default to `en` |
+| 2. Arabic normalization | Custom | Strip tashkeel, normalize alef variants, ya, ta marbuta | Skip if English |
+| 3. Named Entity Recognition | `spaCy` | `en_core_web_lg` (English), `xx_ent_wiki_sm` (Arabic/multilingual) | Return empty entities |
+| 4. Sentiment analysis | HuggingFace | `cardiffnlp/twitter-roberta-base-sentiment-latest` (EN), `aubmindlab/bert-base-arabertv2` (AR) | Keyword-based fallback score |
+| 5. Topic classification | HuggingFace | `facebook/bart-large-mnli` zero-shot classification against 9 incident categories | Keyword heuristic fallback |
+| 6. Threat keyword scoring | Redis | Match against `config:threat_keywords`. Returns sorted keyword list and weighted score 0–100 | Score = 0 |
 
 ### Location Resolution
 
 **File:** `backend/app/services/location_resolver.py`
 
-Resolves incident text or GPS coordinates to a canonical Lebanon region name:
-
-1. **GPS path** — if `latitude` and `longitude` are present, use PostGIS `ST_Within(point, geom)` against the `regions` table
-2. **NLP path** — extract GPE entities from step 3, fuzzy-match against ~80 Lebanon place aliases (Arabic and English variants of all regions and districts)
+1. **GPS path** — if coordinates are present, use PostGIS `ST_Within(point, geom)` against the `regions` table
+2. **NLP path** — extract GPE entities, fuzzy-match against ~80 Lebanon place aliases (Arabic and English variants)
 3. **Fallback** — assign `region = "unknown"`, `confidence = 0`
 
 ---
@@ -847,7 +748,7 @@ overall_score = (
     w_sentiment  * sentiment_component   +   # how negative is discourse
     w_volume     * volume_component      +   # activity vs. 30-day baseline
     w_keyword    * keyword_component     +   # threat keyword presence
-    w_behavior   * behavior_component   +   # abnormal posting patterns
+    w_behavior   * behavior_component    +   # abnormal posting patterns
     w_geospatial * geospatial_component      # incident density (incidents/km²)
 ) × confidence
 ```
@@ -862,7 +763,7 @@ overall_score = (
 | `behavior` | 0.15 | Burst detection (≥3 incidents in 30 min) + escalation ratio + spam penalty |
 | `geospatial` | 0.15 | Incident count / region area (km²), normalized |
 
-**Confidence multiplier** — scales down scores from regions with few incidents:
+**Confidence multiplier:**
 
 | Incident count | Confidence |
 |---|---|
@@ -871,7 +772,7 @@ overall_score = (
 | 10 | 0.90 |
 | 20+ | 0.95 |
 
-**Anomaly detection** — Isolation Forest (`n_estimators=100`, `contamination=0.1`) trained on the feature vector `[sentiment_mean, volume_zscore, keyword_score, behavior_score, geo_density]`. Retrained weekly via Celery.
+**Anomaly detection** — Isolation Forest (`n_estimators=100`, `contamination=0.1`), retrained weekly via Celery.
 
 **Escalation prediction** — `GradientBoostingClassifier` with 8 input features (current score, risk velocity, sentiment trend, volume trend, day of week, hour, historical escalation rate, anomaly score). Tracked in MLflow.
 
@@ -892,16 +793,11 @@ overall_score = (
 
 ### Rate Limiting
 
-A maximum of **1 alert per region per severity level per hour** is generated. Redis TTL keys enforce this: `alert_rate:{region}:{severity}` expires after `ALERT_RATE_LIMIT_SECONDS` (default 3600).
+A maximum of **1 alert per region per severity level per hour** is generated. Redis TTL keys (`alert_rate:{region}:{severity}`) enforce this.
 
 ### AI Recommendations
 
-For `CRITICAL` and `EMERGENCY` alerts, LangChain constructs a prompt with:
-- Alert details and risk component breakdown
-- Last 10 incident summaries for the region
-- Historical context
-
-The Claude API generates a 2–3 sentence situation summary and 3–5 actionable recommendations. The response is cached in Redis for 1 hour per `(region, severity, rounded_score)` key to avoid redundant API calls.
+For `CRITICAL` and `EMERGENCY` alerts, LangChain constructs a prompt with the alert details, risk component breakdown, and the last 10 incident summaries for the region. The Claude API generates a 2–3 sentence situation summary and 3–5 actionable recommendations. The response is cached in Redis for 1 hour to avoid redundant API calls.
 
 ### Notification Channels
 
@@ -926,23 +822,12 @@ Authorization: Bearer <access_token>
 
 #### `POST /api/v1/auth/login`
 
-Authenticate and receive a JWT token.
-
-**Request body:**
 ```json
+// Request
 { "email": "admin@crisisshield.dev", "password": "admin12345" }
-```
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "access_token": "eyJ...",
-    "token_type": "bearer",
-    "user": { "id": "...", "email": "...", "role": "admin", "full_name": "...", "organization": "..." }
-  }
-}
+// Response
+{ "success": true, "data": { "access_token": "eyJ...", "token_type": "bearer", "user": { ... } } }
 ```
 
 #### `GET /api/v1/auth/me`
@@ -951,17 +836,13 @@ Returns the profile of the currently authenticated user.
 
 #### `POST /api/v1/auth/register` *(admin only)*
 
-Register a new user. Body: `{ email, password, full_name, role, organization }`.
+Body: `{ email, password, full_name, role, organization }`.
 
 ---
 
 ### Incidents
 
 #### `GET /api/v1/incidents`
-
-List incidents with filtering and pagination.
-
-**Query parameters:**
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -970,110 +851,46 @@ List incidents with filtering and pagination.
 | `region` | string | Filter by Lebanon region name |
 | `severity` | string | `low`, `medium`, `high`, `critical` |
 | `category` | string | Any incident category |
-| `status` | string | Incident processing status |
 | `search` | string | Full-text search via Elasticsearch |
-| `start_date` | ISO datetime | Filter incidents after this time |
-| `end_date` | ISO datetime | Filter incidents before this time |
+| `start_date` / `end_date` | ISO datetime | Time range filter |
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "items": [ { "id": "...", "title": "...", "category": "violence", "severity": "high", "region": "Beirut", "risk_score": 72.4, "created_at": "..." } ],
-    "total": 505,
-    "page": 1,
-    "per_page": 20,
-    "pages": 26
-  }
-}
-```
+#### `GET /api/v1/incidents/{id}` — full incident detail including entities, keywords, analyst notes
 
-#### `GET /api/v1/incidents/{id}`
+#### `POST /api/v1/incidents` — manually create an incident
 
-Full incident detail including entities, keywords, sentiment, analyst notes.
+#### `PATCH /api/v1/incidents/{id}/review` — analyst review (verification_status, analyst_notes, severity override)
 
-#### `POST /api/v1/incidents`
+#### `GET /api/v1/incidents/live` — most recent N incidents sorted by `created_at DESC`
 
-Manually create an incident. Body: `{ title, description, category, severity, region, source? }`.
-
-#### `PATCH /api/v1/incidents/{id}/review`
-
-Analyst review workflow. Body: `{ verification_status, analyst_notes, severity?, category? }`.
-
-#### `GET /api/v1/incidents/live`
-
-Returns the most recent N incidents sorted by `created_at DESC`. Query param: `limit` (default 20).
-
-#### `GET /api/v1/incidents/geo`
-
-GeoJSON FeatureCollection of all incidents with GPS coordinates. Used by the Incident Map polygon layer.
+#### `GET /api/v1/incidents/geo` — GeoJSON FeatureCollection for the Incident Map
 
 ---
 
 ### Risk Analysis
 
-#### `GET /api/v1/risk/current`
+#### `GET /api/v1/risk/current` — current risk scores for all 8 Lebanon regions
 
-Current risk scores for all 8 Lebanon regions.
+#### `GET /api/v1/risk/region/{region}` — detailed breakdown including `is_anomalous`, `escalation_probability`, `incident_count_24h`
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    { "region": "Beirut", "overall_score": 72.4, "sentiment_component": 68.1, "volume_component": 75.2, "keyword_component": 71.0, "behavior_component": 55.3, "geospatial_component": 80.0, "confidence": 0.95, "is_anomalous": false, "escalation_probability": 0.23 }
-  ]
-}
-```
+#### `GET /api/v1/risk/predictions` — Prophet forecasts (24 h, 48 h, 7 d). Optional `?region=Beirut` filter
 
-#### `GET /api/v1/risk/region/{region}`
+#### `GET /api/v1/risk/history` — historical scores. Params: `region` (required), `hours` (default 48)
 
-Detailed risk breakdown for a single region including `is_anomalous`, `anomaly_score`, `escalation_probability`, and `incident_count_24h`.
-
-#### `GET /api/v1/risk/predictions`
-
-Prophet forecasts for the next 24 h, 48 h, and 7 days. Optional `?region=Beirut` filter.
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    { "region": "Beirut", "horizon": "24h", "predicted_score": 75.2, "lower_bound": 68.1, "upper_bound": 82.3, "generated_at": "..." }
-  ]
-}
-```
-
-#### `GET /api/v1/risk/history`
-
-Historical risk scores. Query params: `region` (required), `hours` (default 48).
-
-#### `POST /api/v1/risk/recalculate`
-
-Trigger an immediate out-of-cycle risk recalculation for all regions. Returns task status.
+#### `POST /api/v1/risk/recalculate` — trigger an immediate out-of-cycle recalculation
 
 ---
 
 ### Alerts
 
-#### `GET /api/v1/alerts`
-
-List alerts. Query params: `region`, `severity`, `acknowledged` (bool).
+#### `GET /api/v1/alerts` — list alerts. Params: `region`, `severity`, `acknowledged` (bool)
 
 #### `GET /api/v1/alerts/stats`
 
-Aggregated statistics:
 ```json
-{
-  "success": true,
-  "data": { "total": 42, "acknowledged": 18, "by_severity": { "info": 12, "warning": 15, "critical": 10, "emergency": 5 }, "average_response_minutes": 14.3 }
-}
+{ "total": 42, "acknowledged": 18, "by_severity": { "info": 12, "warning": 15, "critical": 10, "emergency": 5 }, "average_response_minutes": 14.3 }
 ```
 
-#### `PATCH /api/v1/alerts/{id}/acknowledge`
-
-Mark an alert as acknowledged. Records `acknowledged_by` and `acknowledged_at`.
+#### `PATCH /api/v1/alerts/{id}/acknowledge` — records `acknowledged_by` and `acknowledged_at`
 
 ---
 
@@ -1082,54 +899,26 @@ Mark an alert as acknowledged. Records `acknowledged_by` and `acknowledged_at`.
 #### `GET /api/v1/dashboard/overview`
 
 ```json
-{
-  "success": true,
-  "data": { "total_incidents_24h": 47, "active_alerts": 3, "avg_risk_score": 57.25, "top_risk_region": "Beirut" }
-}
+{ "total_incidents_24h": 47, "active_alerts": 3, "avg_risk_score": 57.25, "top_risk_region": "Beirut" }
 ```
 
-#### `GET /api/v1/dashboard/trends`
+#### `GET /api/v1/dashboard/trends` — 24-hour time-series `[{ time, incidents, risk_score, sentiment }]` at hourly resolution
 
-24-hour time-series data for chart rendering. Returns array of `{ time, incidents, risk_score, sentiment }` objects at hourly resolution.
-
-#### `GET /api/v1/dashboard/hotspots`
-
-GeoJSON FeatureCollection of the top incident clusters computed via PostGIS `ST_ClusterDBSCAN`.
+#### `GET /api/v1/dashboard/hotspots` — GeoJSON FeatureCollection of incident clusters
 
 ---
 
 ### Official Feeds
 
-#### `GET /api/v1/official-feeds`
-
-Returns the latest posts from official Lebanese news channels (LBCI, MTV Lebanon, Al Jadeed, Al Manar, and any extras in `OFFICIAL_FEED_EXTRA_CHANNELS_JSON`).
+#### `GET /api/v1/official-feeds` — latest posts from official Lebanese news channels
 
 ---
 
-### Health Check
+### Health
 
-#### `GET /health`
+#### `GET /health` — DB connection status + seed counts. No auth required.
 
-Returns connection status of all services and seed data counts. No auth required.
-
-```json
-{
-  "success": true,
-  "data": {
-    "storage_mode": "local",
-    "postgres": false,
-    "mongodb": false,
-    "elasticsearch": false,
-    "redis": false,
-    "seeded_users": 1,
-    "seeded_incidents": 505
-  }
-}
-```
-
-#### `GET /metrics`
-
-Prometheus metrics endpoint (request counts, latencies, WebSocket connections, Kafka lag, NLP processing times).
+#### `GET /metrics` — Prometheus metrics (request counts, latencies, WebSocket connections, Kafka lag)
 
 ---
 
@@ -1137,18 +926,7 @@ Prometheus metrics endpoint (request counts, latencies, WebSocket connections, K
 
 **Endpoint:** `ws://localhost:8000/ws/live-feed`
 
-The frontend hook `useBackendWebSocket` connects on mount, auto-reconnects with exponential backoff on disconnect, and triggers `useLiveData` re-fetches on each message.
-
-### Message Format
-
-All messages are JSON with a `type` field:
-
-```json
-{ "type": "incident", "data": { ...incident fields... }, "timestamp": "2026-04-03T12:00:00Z" }
-{ "type": "alert",    "data": { ...alert fields... },    "timestamp": "..." }
-{ "type": "risk_update", "data": { "region": "Beirut", "overall_score": 74.1 }, "timestamp": "..." }
-{ "type": "heartbeat", "timestamp": "..." }
-```
+The frontend hook `useBackendWebSocket` connects on mount and auto-reconnects with exponential backoff on disconnect.
 
 ### Message Types
 
@@ -1160,6 +938,13 @@ All messages are JSON with a `type` field:
 | `risk_update` | Risk recalculated | Update regional risk gauges and map colors |
 | `heartbeat` | Every 30 seconds | Confirm connection is alive |
 
+```json
+{ "type": "incident",    "data": { ...incident fields... },              "timestamp": "2026-04-03T12:00:00Z" }
+{ "type": "alert",       "data": { ...alert fields... },                 "timestamp": "..." }
+{ "type": "risk_update", "data": { "region": "Beirut", "overall_score": 74.1 }, "timestamp": "..." }
+{ "type": "heartbeat",   "timestamp": "..." }
+```
+
 ---
 
 ## 13. Monitoring — Grafana & Prometheus
@@ -1169,15 +954,15 @@ All messages are JSON with a `type` field:
 **Config:** `infrastructure/monitoring/prometheus.yml`
 
 Scrapes metrics from:
-- `backend:8000/metrics` — FastAPI app metrics (via `prometheus-fastapi-instrumentator`)
-- `redis:6379` — Redis memory, hit rate, connected clients
-- `kafka:9092` — Kafka consumer lag, topic throughput
+- `backend:8000/metrics` — FastAPI app metrics via `prometheus-fastapi-instrumentator`
+- `redis:6379` — memory, hit rate, connected clients
+- `kafka:9092` — consumer lag, topic throughput
 
 ### Grafana
 
 **URL:** http://localhost:3001 (admin / crisisshield)
 
-**Dashboard:** `infrastructure/grafana/dashboards/crisisshield.json` — auto-provisioned on startup with 8 panels:
+Auto-provisioned dashboard with 8 panels:
 
 | Panel | Metric |
 |---|---|
@@ -1190,15 +975,11 @@ Scrapes metrics from:
 | Risk Scores by Region | Current risk score per Lebanon region |
 | Alert Rates | Alerts generated per hour by severity |
 
-**Data source** is auto-provisioned from `infrastructure/grafana/provisioning/datasources/prometheus.yml` and requires no manual configuration.
-
 ---
 
 ## 14. Celery Task Schedule
 
 **File:** `backend/app/workers/celery_tasks.py`
-
-Celery Beat runs the following periodic tasks:
 
 | Task | Schedule | Description |
 |---|---|---|
@@ -1207,53 +988,36 @@ Celery Beat runs the following periodic tasks:
 | `retrain_prophet_models` | Daily at 00:00 | Retrains Prophet forecasting models per region on the latest 30 days of risk history |
 | `retrain_anomaly_detector` | Weekly, Sunday 02:00 | Retrains Isolation Forest on the latest 30 days of feature vectors |
 
-**Redis keys used by Celery:**
-- Broker: `redis://redis:6379/0`
-- Result backend: `redis://redis:6379/0`
-
 ---
 
 ## 15. Running Tests
 
 53 pytest tests cover all API endpoint groups, NLP pipeline, and risk scoring logic.
 
-### Setup
-
 ```bash
 cd backend
 pip install -r requirements.txt
-pip install pytest pytest-asyncio httpx
-```
-
-### Run all tests
-
-```bash
-cd backend
 pytest
 ```
 
-### Run specific test files
+**Run specific test files:**
 
 ```bash
-pytest app/tests/test_auth.py           # Authentication (login, token, register)
+pytest app/tests/test_auth.py           # Authentication
 pytest app/tests/test_incidents.py      # Incidents CRUD, filtering, geo endpoint
-pytest app/tests/test_risk.py           # Risk scores, region detail, predictions, history
+pytest app/tests/test_risk.py           # Risk scores, predictions, history
 pytest app/tests/test_alerts.py         # Alert list, stats, acknowledge
 pytest app/tests/test_dashboard.py      # Overview, trends, hotspots
-pytest app/tests/test_nlp.py            # Seed data integrity, NLP scoring, async pipeline
+pytest app/tests/test_nlp.py            # Seed data integrity, NLP pipeline
 pytest app/tests/test_health.py         # /health endpoint
 pytest app/tests/test_official_feeds.py # Official feeds endpoint
 ```
 
-### Run with verbose output
-
 ```bash
-pytest -v --tb=short
+pytest -v --tb=short   # verbose output
 ```
 
-**Test mode:** `STORAGE_MODE=local` is set automatically in the test fixtures. All tests use the in-memory store and do not require any running database services.
-
-**Async support:** `pyproject.toml` sets `asyncio_mode = "auto"` so all `async def test_*` functions are handled automatically by pytest-asyncio.
+All tests use `STORAGE_MODE=local` (set automatically in test fixtures) and do not require any running database services.
 
 ---
 
@@ -1261,119 +1025,81 @@ pytest -v --tb=short
 
 ### `ModuleNotFoundError: No module named 'sqlalchemy'`
 
-The backend requires SQLAlchemy only when `STORAGE_MODE=postgres`. In local mode it is not needed. If you see this error in local mode, sqlalchemy's import was not properly guarded. Check that `backend/app/db/postgres.py` imports SQLAlchemy inside methods, not at the module top level.
-
-For local development, install the minimal set of dependencies listed in Step 1 of [Quick Start — Local Mode](#5-quick-start--local-mode-no-docker).
+In local mode, SQLAlchemy is not needed. Install only the minimal set from [Step 1 of Quick Start](#5-quick-start--local-mode-no-docker).
 
 ### Login returns `500 Internal Server Error`
 
-Most commonly caused by `bcrypt` version incompatibility with `passlib`. `bcrypt` 4.x+ changed its API in a way that breaks `passlib 1.7.x`.
+Caused by a `bcrypt` / `passlib` version mismatch. Fix:
 
-**Fix:**
 ```bash
 pip install "bcrypt<4.0.0"
 ```
 
-### `Port 8000 is already in use`
+### Port already in use
 
 ```bash
-# Find and kill the process using port 8000
 netstat -ano | findstr :8000
 taskkill /PID <PID> /F
 ```
 
-### `Port 8080 is already in use`
-
-The frontend is already running. Open http://127.0.0.1:8080/ directly, or stop the existing process:
-
-```bash
-netstat -ano | findstr :8080
-taskkill /PID <PID> /F
-.\scripts\run-local.ps1
-```
-
-### `.\scripts\run-local.ps1` is not recognized
-
-You are in the outer `snuggle-buddy-build-main` folder instead of the inner project root.
-
-```powershell
-cd C:\Users\MahdiMortada\Downloads\snuggle-buddy-build-main\snuggle-buddy-build-main
-.\scripts\run-local.ps1
-```
-
-Verify you are in the correct folder:
-```powershell
-dir package.json
-dir scripts
-un-local.ps1
-```
-
-### Browser shows stale version or wrong port
-
-Close any tabs open on old ports (8082, 3000, etc.). Open a fresh tab on the correct URL and hard-refresh with `Ctrl+F5`.
-
 ### Elasticsearch takes too long to start
 
-Elasticsearch requires ~2 GB RAM. In Docker Desktop, ensure at least 4 GB RAM is allocated. Increase the `healthcheck.retries` for the `elasticsearch` service in `docker-compose.yml` if it fails during startup on slower machines.
+Elasticsearch requires ~2 GB RAM. Ensure Docker Desktop has at least 4 GB allocated. Increase `healthcheck.retries` for the `elasticsearch` service in `docker-compose.yml` on slower machines.
 
-### Official feeds return empty results
+### Official Feeds return empty results
 
-The official feeds system pulls from public Telegram channels. Channel availability depends on network reachability. If a channel is temporarily unavailable, the system returns an empty list for that source without failing. Add additional channels via `OFFICIAL_FEED_EXTRA_CHANNELS_JSON` in `backend/.env`.
+Channel availability depends on network reachability. If a channel is temporarily unavailable, the system returns an empty list for that source without failing. Add extra channels via `OFFICIAL_FEED_EXTRA_CHANNELS_JSON` in `backend/.env`.
 
 ### AI recommendations not appearing on alerts
 
-`CLAUDE_API_KEY` is not set in `backend/.env`. When the key is absent, the recommendation engine falls back to pre-written template recommendations. Add your Anthropic API key to enable live LangChain + Claude recommendations.
+`CLAUDE_API_KEY` is not set in `backend/.env`. Add your Anthropic API key to enable LangChain + Claude recommendations. Without the key, pre-written template recommendations are used instead.
 
 ### Celery workers not processing tasks
 
-1. Confirm Redis is running and reachable: `redis-cli -p 6380 ping` (Docker) or `redis-cli ping` (local)
-2. Confirm the `REDIS_URL` in `backend/.env` matches the running Redis instance
+1. Confirm Redis is running: `redis-cli -p 6380 ping`
+2. Confirm `REDIS_URL` in `backend/.env` matches the running Redis instance
 3. Check worker logs: `docker-compose logs celery-worker`
+4. Restart workers: `docker-compose restart celery-worker celery-beat`
 
 ### Chatbot gives outdated information
 
-The AI chatbot reads live incidents from:
-1. **Frontend context** (incidents visible on the dashboard when you open the chat)
-2. **Live news cache** (`live_news_service._cache`) — fetched at startup and refreshed every 5 minutes
-3. **Local store** — fallback seed data (only in `STORAGE_MODE=local`)
-
-If the chatbot seems out of date, wait ~5 minutes for the background refresh or restart the backend container to trigger an immediate news fetch.
+The chatbot reads from (in priority order): frontend context → live news cache → local store. The news cache refreshes automatically every 5 minutes. If it seems stale, restart the backend to trigger an immediate fetch.
 
 ### PostgreSQL tables are empty after migration
 
-The app stores incidents in memory (live news cache), not in the PostgreSQL `incidents` table by default. To populate PostgreSQL manually, run the one-time seed script inside the container:
+The app stores incidents in the in-memory live news cache, not PostgreSQL, by default. To populate PostgreSQL manually:
 
 ```bash
 docker-compose exec backend python /app/seed_pg.py
 ```
-
-This fetches the latest news and writes all incidents to PostgreSQL. The script can be re-run at any time — it uses `ON CONFLICT DO UPDATE` so it is safe to run multiple times.
 
 ### DBeaver — how to connect
 
 | Field | Value |
 |---|---|
 | Host | `localhost` |
-| Port | `5433` (Docker maps 5433 → 5432 internally) |
+| Port | `5433` |
 | Database | `crisisshield` |
 | Username | `postgres` |
 | Password | `postgres` |
 
-After connecting, expand `Databases → crisisshield → Schemas → public → Tables` to browse `incidents`, `alerts`, `risk_scores`, `regions`, `users`.
-
 ---
 
-## 17. Recent Updates
+## 17. Team Workflow
 
-### April 2026 — Live Data & Chatbot Fixes
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for branch, PR, commit, and conflict rules.
 
-| Change | Description |
-|--------|-------------|
-| **Live news on startup** | Backend now fetches real news from Google News (Reuters, Naharnet, LBCI, NNA, Al Jazeera, L'Orient Today, etc.) immediately on startup in all storage modes, not just `postgres` mode |
-| **Background news refresh** | A 5-minute `asyncio` background loop refreshes the news cache automatically without requiring Celery |
-| **Chatbot live data fix** | Chat endpoint now reads from `live_news_service._cache` when `local_store` is empty (postgres mode), so the AI always has current news |
-| **Chatbot system prompt** | Fully rewritten as an elite Lebanon intelligence analyst with current political leadership (Aoun, Salam, Berri, Nasrallah's death), exact incident timestamps, and no topic restrictions on Lebanon questions |
-| **Alembic migration fix** | Fixed `DROP COLUMN IF EXISTS regions.geometry` SQL syntax error that prevented table creation |
-| **ORM fix** | Renamed reserved SQLAlchemy attribute `metadata` → `extra_metadata` (mapped to `metadata` column) |
-| **PostgreSQL seed script** | Added `backend/seed_pg.py` to manually sync live news into PostgreSQL for DBeaver visibility |
-4. Restart workers: `docker-compose restart celery-worker celery-beat`
+**Never push directly to `main`.** Always create a feature branch, push it, and open a PR for review.
+
+To block direct pushes to `main` locally, run once:
+
+```bash
+./scripts/setup-git-workflow.sh https://github.com/mahdi-mortada/snuggle-buddy-build.git
+```
+
+**Recommended GitHub branch protection settings for `main`:**
+
+- Require pull requests before merging
+- Require at least 1 approval
+- Restrict direct pushes
+- Require status checks to pass
