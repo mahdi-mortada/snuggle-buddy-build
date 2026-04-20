@@ -404,19 +404,6 @@ export default function OfficialFeeds() {
                       </p>
 
 
-                      {matchedRegions.length > 0 ? (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {matchedRegions.slice(0, 4).map((region) => (
-                            <Badge
-                              key={`${post.id}-region-${region.id}`}
-                              variant="outline"
-                              className="border-primary/20 bg-primary/5 text-[11px] text-primary/90"
-                            >
-                              {region.label}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : null}
 
                       {post.primaryKeyword ? (
                         <div className="mt-4 flex flex-wrap items-center gap-2">
