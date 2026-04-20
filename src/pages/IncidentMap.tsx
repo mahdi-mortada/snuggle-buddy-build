@@ -6,6 +6,8 @@ import { useLiveData } from '@/hooks/useLiveData';
 import { resolveSourceUrl } from '@/lib/sourceLink';
 import type { Incident, IncidentCategory, OfficialFeedPost } from '@/types/crisis';
 import { fetchBackendLiveIncidents, fetchBackendOfficialFeedPosts } from '@/services/backendApi';
+import { normalize } from '../data/districtColorLookup';
+import { SECT_COLORS, SECT_LABELS, DISTRICT_DEFAULT_SECT, VILLAGE_SECT } from '../data/lebanon_village_sects';
 
 type LebanonFeatureProperties = {
   GID_3?: string;
@@ -620,8 +622,16 @@ export default function IncidentMap() {
       zoomControl: true,
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+    }).addTo(map);
+
+    // Labels pane sits above the GeoJSON overlay pane (400) so names render over colored fills
+    const labelsPane = map.createPane('labels');
+    labelsPane.style.zIndex = '450';
+    labelsPane.style.pointerEvents = 'none';
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+      pane: 'labels',
     }).addTo(map);
 
     markersLayer.current = L.layerGroup().addTo(map);
@@ -690,15 +700,22 @@ export default function IncidentMap() {
 
     if (!regionsLayer.current) {
       const regionLayer = L.geoJSON(geoJsonData, {
-        style: {
-          color: '#334155',
-          weight: 0.5,
-          opacity: 0.45,
-          fillColor: '#1e293b',
-          fillOpacity: 0.06,
+        style: (feature) => {
+          const name3key = normalize(feature?.properties?.NAME_3 ?? '');
+          const name2key = normalize(feature?.properties?.NAME_2 ?? '');
+          const sect = VILLAGE_SECT[name3key] ?? DISTRICT_DEFAULT_SECT[name2key] ?? 'mixed';
+          const color = SECT_COLORS[sect] ?? '#778899';
+          return {
+            fillColor: color,
+            fillOpacity: 0.45,
+            color: 'rgba(255,255,255,0.22)',
+            weight: 0.35,
+            opacity: 0.7,
+          };
         },
         interactive: false,
       }).addTo(mapInstance.current);
+
       regionsLayer.current = regionLayer;
     }
 
@@ -796,8 +813,33 @@ export default function IncidentMap() {
         </div>
 
         {/* Map */}
-        <div className="flex-1 rounded-lg overflow-hidden border border-border/50">
+        <div className="flex-1 rounded-lg overflow-hidden border border-border/50 relative">
           <div ref={mapRef} className="h-full w-full" style={{ background: 'hsl(var(--background))' }} />
+          {/* Sectarian distribution legend */}
+          <div className="absolute bottom-4 left-3 z-[1000] bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2.5 flex flex-col gap-1 text-[11px] text-white">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-white/60 mb-1">Sectarian Distribution</div>
+            <div className="text-[9px] font-medium text-white/40 mb-0.5">Christianity</div>
+            {(['maronite','greek_orthodox','greek_catholic','armenian','other_christian'] as const).map((sect) => (
+              <div key={sect} className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: SECT_COLORS[sect], opacity: 0.9 }} />
+                <span className="text-white/90">{SECT_LABELS[sect]}</span>
+              </div>
+            ))}
+            <div className="text-[9px] font-medium text-white/40 mt-1.5 mb-0.5">Islam</div>
+            {(['shia','sunni','alawite'] as const).map((sect) => (
+              <div key={sect} className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: SECT_COLORS[sect], opacity: 0.9 }} />
+                <span className="text-white/90">{SECT_LABELS[sect]}</span>
+              </div>
+            ))}
+            <div className="text-[9px] font-medium text-white/40 mt-1.5 mb-0.5">Other</div>
+            {(['druze','mixed'] as const).map((sect) => (
+              <div key={sect} className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: SECT_COLORS[sect], opacity: 0.9 }} />
+                <span className="text-white/90">{SECT_LABELS[sect]}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </DashboardLayout>
